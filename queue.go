@@ -13,17 +13,21 @@ import (
 // It encapsulates properties such as name, durability, auto-delete behavior,
 // exclusivity, TTL, DLQ (Dead Letter Queue), and retry mechanisms.
 type QueueDefinition struct {
-	name      string
-	durable   bool
-	delete    bool
-	exclusive bool
-	withTTL   bool
-	ttl       time.Duration
-	withDLQ   bool
-	dqlName   string
-	withRetry bool
-	retryTTL  time.Duration
-	retires   int64
+	name             string
+	durable          bool
+	delete           bool
+	exclusive        bool
+	withTTL          bool
+	ttl              time.Duration
+	withMaxLength    bool
+	maxLength        int64
+	withDLQ          bool
+	dqlName          string
+	withDLQMaxLength bool
+	dlqMaxLength     int64
+	withRetry        bool
+	retryTTL         time.Duration
+	retries          int64
 }
 
 // NewQueue creates a new queue definition with the given name.
@@ -65,6 +69,13 @@ func (q *QueueDefinition) Exclusive(e bool) *QueueDefinition {
 	return q
 }
 
+// WithMaxLength sets a maximum length for the queue.
+func (q *QueueDefinition) WithMaxLength(length int64) *QueueDefinition {
+	q.withMaxLength = true
+	q.maxLength = length
+	return q
+}
+
 // WithTTL sets a Time-To-Live (TTL) for messages in the queue.
 // Messages that remain in the queue longer than the TTL will be automatically removed.
 func (q *QueueDefinition) WithTTL(ttl time.Duration) *QueueDefinition {
@@ -82,13 +93,20 @@ func (q *QueueDefinition) WithDQL() *QueueDefinition {
 	return q
 }
 
+// WithDLQMaxLength sets a maximum length for the Dead Letter Queue.
+func (q *QueueDefinition) WithDLQMaxLength(length int64) *QueueDefinition {
+	q.withDLQMaxLength = true
+	q.dlqMaxLength = length
+	return q
+}
+
 // WithRetry enables a retry mechanism for this queue.
 // Failed messages will be moved to a retry queue for the specified TTL duration
 // and then requeued up to the specified number of retries.
 func (q *QueueDefinition) WithRetry(ttl time.Duration, retries int64) *QueueDefinition {
 	q.withRetry = true
 	q.retryTTL = ttl
-	q.retires = retries
+	q.retries = retries
 	return q
 }
 

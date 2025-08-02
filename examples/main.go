@@ -16,8 +16,10 @@ func main() {
 	queueDef := bunmq.
 		NewQueue("my-queue").
 		Durable(true).
+		WithMaxLength(100_000).
 		WithRetry(time.Second*10, 3).
-		WithDQL()
+		WithDQL().
+		WithDLQMaxLength(10_000)
 
 	topology := bunmq.
 		NewTopology("amqp://guest:guest@localhost:5672/").

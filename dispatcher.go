@@ -239,7 +239,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 			continue
 		}
 
-		if def.queueDefinition.withRetry && metadata.XCount >= def.queueDefinition.retires {
+		if def.queueDefinition.withRetry && metadata.XCount >= def.queueDefinition.retries {
 			logrus.
 				WithContext(ctx).
 				WithField("messageID", metadata.MessageID).

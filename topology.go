@@ -202,6 +202,7 @@ func (t *topology) declareQueues() error {
 				"x-dead-letter-exchange":    "",
 				"x-dead-letter-routing-key": queue.name,
 				"x-message-ttl":             queue.retryTTL.Milliseconds(),
+				"x-retry-count":             queue.retries,
 			}); err != nil {
 				return err
 			}
@@ -224,6 +225,10 @@ func (t *topology) declareQueues() error {
 			}
 		}
 
+		if queue.withDLQMaxLength {
+			amqpDlqDeclarationOpts["x-max-length"] = queue.dlqMaxLength
+		}
+
 		if queue.withDLQ {
 			logrus.Infof("bunmq declaring dlq queue: %s ...", queue.DLQName())
 
@@ -233,7 +238,12 @@ func (t *topology) declareQueues() error {
 				return err
 			}
 
+			delete(amqpDlqDeclarationOpts, "x-max-length")
 			logrus.Info("bunmq dlq queue declared")
+		}
+
+		if queue.withMaxLength {
+			amqpDlqDeclarationOpts["x-max-length"] = queue.maxLength
 		}
 
 		if _, err := t.channel.QueueDeclare(queue.name, queue.durable, queue.delete, queue.exclusive, false, amqpDlqDeclarationOpts); err != nil {
@@ -241,6 +251,7 @@ func (t *topology) declareQueues() error {
 			return err
 		}
 	}
+
 	logrus.Info("bunmq queues declared")
 	return nil
 }
