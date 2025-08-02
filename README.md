@@ -6,6 +6,35 @@
 
 A resilient and robust RabbitMQ library for Go applications, providing high-level abstractions for topology management, message publishing, and consuming with built-in retry mechanisms and dead letter queue (DLQ) support.
 
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Concepts](#concepts)
+  - [Topology](#topology)
+  - [Queues](#queues)
+  - [Exchanges](#exchanges)
+  - [Publishing](#publishing)
+  - [Message Consumption](#message-consumption)
+- [Error Handling and Resilience](#error-handling-and-resilience)
+  - [Retry Strategy](#retry-strategy)
+  - [Dead Letter Queues](#dead-letter-queues)
+  - [Error Types](#error-types)
+- [Observability](#observability)
+  - [Distributed Tracing](#distributed-tracing)
+  - [Logging](#logging)
+- [Advanced Usage](#advanced-usage)
+  - [Exchange Bindings](#exchange-bindings)
+  - [Custom Message Metadata](#custom-message-metadata)
+  - [Multiple Queue Definitions](#multiple-queue-definitions)
+- [Configuration](#configuration)
+  - [Connection Options](#connection-options)
+  - [Queue Configuration Options](#queue-configuration-options)
+- [Best Practices](#best-practices)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Features
 
 - **Topology Management**: Declarative configuration of exchanges, queues, and bindings
