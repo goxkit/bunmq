@@ -121,6 +121,7 @@ func NewDispatcher(channel AMQPChannel, queueDefinitions []*QueueDefinition) *di
 //   - Any other error: Message will be sent to the DLQ if configured
 func (d *dispatcher) Register(queue string, msg any, handler ConsumerHandler) error {
 	if msg == nil || queue == "" {
+		logrus.Error("bunmq invalid parameters to register consumer")
 		return InvalidDispatchParamsError
 	}
 
@@ -188,7 +189,7 @@ func (d *dispatcher) ConsumeBlocking() {
 func (d *dispatcher) consume(queue, msgType string) {
 	delivery, err := d.channel.Consume(queue, msgType, false, false, false, false, nil)
 	if err != nil {
-		logrus.WithError(err).Errorf("failure to declare consumer for queue: %s", queue)
+		logrus.WithError(err).Errorf("bunmq failure to declare consumer for queue: %s", queue)
 		return
 	}
 
@@ -201,13 +202,13 @@ func (d *dispatcher) consume(queue, msgType string) {
 
 		logrus.
 			WithField("messageID", metadata.MessageID).
-			Infof("received message: %s", metadata.Type)
+			Debugf("bunmq received message: %s", metadata.Type)
 
 		def, ok := d.consumersDefinition[msgType]
 
 		if !ok {
 			logrus.Warnf(
-				"could not find any consumer for this msg type: %s, messageID: %s",
+				"bunmq could not find any consumer for this msg type: %s, messageID: %s",
 				metadata.Type,
 				metadata.MessageID,
 			)
@@ -215,7 +216,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 				logrus.
 					WithField("messageID", metadata.MessageID).
 					WithError(err).
-					Errorf("failed to ack msg: %s", received.MessageId)
+					Errorf("bunmq failed to ack msg: %s", received.MessageId)
 			}
 			continue
 		}
@@ -229,7 +230,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 				WithContext(ctx).
 				WithError(err).
 				WithField("messageID", metadata.MessageID).
-				Errorf("unmarshal error: %s", received.Type)
+				Errorf("bunmq unmarshal error: %s", received.Type)
 			_ = received.Nack(true, false)
 			span.End()
 			continue
@@ -248,7 +249,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 					WithContext(ctx).
 					WithError(err).
 					WithField("messageID", metadata.MessageID).
-					Error("failure to publish to dlq")
+					Error("bunmq failure to publish to dlq")
 			}
 
 			span.End()
@@ -260,7 +261,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 				WithContext(ctx).
 				WithError(err).
 				WithField("messageID", metadata.MessageID).
-				Error("error to process message")
+				Error("bunmq error to process message")
 
 			if def.queueDefinition.withDLQ || err != RetryableError {
 				span.RecordError(err)
@@ -272,7 +273,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 						WithContext(ctx).
 						WithError(err).
 						WithField("messageID", metadata.MessageID).
-						Error("failure to publish to dlq")
+						Error("bunmq failure to publish to dlq")
 				}
 
 				span.End()
@@ -282,7 +283,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 			logrus.
 				WithContext(ctx).
 				WithField("messageID", metadata.MessageID).
-				Warn("send message to process latter")
+				Warn("bunmq send message to process latter")
 
 			_ = received.Nack(false, false)
 			span.End()
@@ -292,7 +293,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 		logrus.
 			WithContext(ctx).
 			WithField("messageID", metadata.MessageID).
-			Debug("message processed properly")
+			Debug("bunmq message processed properly")
 		_ = received.Ack(true)
 		span.SetStatus(codes.Ok, "success")
 		span.End()
@@ -316,7 +317,7 @@ func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*deliveryMetadata
 	if typ == "" {
 		logrus.
 			WithField("messageID", delivery.MessageId).
-			Error("unformatted amqp delivery - missing type parameter")
+			Error("bunmq unformatted amqp delivery - missing type parameter")
 		return nil, ReceivedMessageWithUnformattedHeaderError
 	}
 
