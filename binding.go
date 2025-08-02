@@ -1,8 +1,8 @@
-// Copyright (c) 2023, The GoKit Authors
+// Copyright (c) 2025, The GoKit Authors
 // MIT License
 // All rights reserved.
 
-package crmq
+package bunmq
 
 type (
 	// ExchangeBindingDefinition represents a binding between two exchanges.

@@ -1,0 +1,59 @@
+// Copyright (c) 2025, The GoKit Authors
+// MIT License
+// All rights reserved.
+
+package main
+
+import (
+	"context"
+	"time"
+
+	"github.com/goxkit/bunmq"
+	"github.com/sirupsen/logrus"
+)
+
+func main() {
+	queueDef := bunmq.
+		NewQueue("my-queue").
+		Durable(true).
+		WithRetry(time.Second*10, 3).
+		WithDQL()
+
+	topology := bunmq.
+		NewTopology("amqp://guest:guest@localhost:5672/").
+		Queue(queueDef).
+		Exchange(
+			bunmq.
+				NewDirectExchange("my-exchange").
+				Durable(true),
+		).
+		QueueBinding(
+			bunmq.
+				NewQueueBinding().
+				Queue("my-queue").
+				Exchange("my-exchange").
+				RoutingKey("my-routing-key"),
+		)
+
+	conn, channel, err := topology.Apply()
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+
+	dispatcher := bunmq.NewDispatcher(channel, []*bunmq.QueueDefinition{queueDef})
+
+	dispatcher.Register(
+		queueDef.Name(),
+		&MyCustomMessage{},
+		func(ctx context.Context, msg any, metadata any) error {
+			logrus.Info("Received message:", msg)
+			return nil
+		})
+
+	dispatcher.ConsumeBlocking()
+}
+
+type MyCustomMessage struct {
+	Value string `json:"value"`
+}

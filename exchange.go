@@ -1,8 +1,8 @@
-// Copyright (c) 2023, The GoKit Authors
+// Copyright (c) 2025, The GoKit Authors
 // MIT License
 // All rights reserved.
 
-package crmq
+package bunmq
 
 type (
 	// ExchangeKind represents the type of a RabbitMQ exchange.
@@ -34,6 +34,23 @@ var (
 	// DirectExchange represents a direct exchange type.
 	// Direct exchanges route messages to queues based on a matching routing key.
 	DirectExchange ExchangeKind = "direct"
+
+	// TopicExchange represents a topic exchange type.
+	// Topic exchanges route messages to queues based on wildcard matching of routing keys.
+	// This allows for more complex routing patterns.
+	TopicExchange ExchangeKind = "topic"
+
+	// HeadersExchange represents a headers exchange type.
+	// Headers exchanges route messages based on header attributes rather than routing keys.
+	// This allows for routing based on multiple attributes.
+	HeadersExchange ExchangeKind = "headers"
+
+	// XDelayedMessageExchange represents a delayed message exchange type.
+	// This exchange type allows messages to be delayed before being routed to queues.
+	// It is used for implementing delayed message delivery patterns.
+	//
+	// Note: This exchange type requires the RabbitMQ Delayed Message Plugin.
+	XDelayedMessageExchange ExchangeKind = "x-delayed-message"
 )
 
 // NewDirectExchange creates a new direct exchange definition with the given name.

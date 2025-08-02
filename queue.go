@@ -1,8 +1,8 @@
-// Copyright (c) 2023, The GoKit Authors
+// Copyright (c) 2025, The GoKit Authors
 // MIT License
 // All rights reserved.
 
-package crmq
+package bunmq
 
 import (
 	"fmt"
@@ -28,6 +28,17 @@ type QueueDefinition struct {
 
 // NewQueue creates a new queue definition with the given name.
 // By default, queues are durable, not auto-deleted, and not exclusive.
+// You can chain methods to configure additional properties such as TTL, DLQ, and retry behavior.
+//
+// Example usage:
+//
+//	 queueDef := bunmq.NewQueue("my-queue").Durable(true).WithRetry(time.Second*10, 3).WithDQL()
+//
+//	This creates a durable queue with retry and dead letter queue enabled.
+//
+// Note: The queue name must be unique within the RabbitMQ broker.
+// It is used to declare the queue and bind it to exchanges.
+// If the queue already exists with different properties, an error will be returned when trying to declare
 func NewQueue(name string) *QueueDefinition {
 	return &QueueDefinition{name: name, durable: true, delete: false, exclusive: false}
 }
@@ -79,6 +90,13 @@ func (q *QueueDefinition) WithRetry(ttl time.Duration, retries int64) *QueueDefi
 	q.retryTTL = ttl
 	q.retires = retries
 	return q
+}
+
+// Name returns the name of the queue.
+// This is the identifier used to declare and bind the queue in RabbitMQ.
+// It is also used to create the DLQ and retry queue names.
+func (q *QueueDefinition) Name() string {
+	return q.name
 }
 
 // DLQName returns the name of the Dead Letter Queue associated with this queue.

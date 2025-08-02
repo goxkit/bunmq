@@ -1,8 +1,8 @@
-// Copyright (c) 2023, The GoKit Authors
+// Copyright (c) 2025, The GoKit Authors
 // MIT License
 // All rights reserved.
 
-package crmq
+package bunmq
 
 import (
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -90,21 +90,21 @@ var dial = func(connectionString string) (RMQConnection, error) {
 // then creates a channel on that connection.
 // Returns the connection, channel, and any error encountered.
 func NewConnection(connectionString string) (RMQConnection, AMQPChannel, error) {
-	logrus.Debug(LogMessage("connecting to rabbitmq..."))
+	logrus.Debug("bunmq connecting to rabbitmq...")
 	conn, err := dial(connectionString)
 	if err != nil {
-		logrus.WithError(err).Error(LogMessage("failure to connect to the broker"))
+		logrus.WithError(err).Error("bunmq failure to connect to the broker")
 		return nil, nil, rabbitMQDialError(err)
 	}
-	logrus.Debug(LogMessage("connected to rabbitmq"))
+	logrus.Debug("bunmq connected to rabbitmq")
 
-	logrus.Debug(LogMessage("creating amqp channel..."))
+	logrus.Debug("bunmq creating amqp channel...")
 	ch, err := conn.Channel()
 	if err != nil {
-		logrus.WithError(err).Error(LogMessage("failure to establish the channel"))
+		logrus.WithError(err).Error("bunmq failure to establish the channel")
 		return nil, nil, getChannelError(err)
 	}
-	logrus.Debug(LogMessage("created amqp channel"))
+	logrus.Debug("bunmq created amqp channel")
 
 	return conn, ch, nil
 }
