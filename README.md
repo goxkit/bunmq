@@ -71,13 +71,13 @@ type OrderCreated struct {
 
 func main() {
     // Define queue with retry and DLQ
-	queueDef := bunmq.
-		NewQueue("my-queue").
-		Durable(true).
-		WithMaxLength(100_000).
-		WithRetry(time.Second*10, 3).
-		WithDQL().
-		WithDLQMaxLength(10_000)
+    queueDef := bunmq.
+        NewQueue("my-queue").
+        Durable(true).
+        WithMaxLength(100_000).
+        WithRetry(time.Second*10, 3).
+        WithDQL().
+        WithDLQMaxLength(10_000)
 
     // Create topology
     topology := bunmq.
