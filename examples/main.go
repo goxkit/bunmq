@@ -47,7 +47,7 @@ func main() {
 		queueDef.Name(),
 		&MyCustomMessage{},
 		func(ctx context.Context, msg any, metadata any) error {
-			logrus.Info("Received message:", msg)
+			logrus.Info("example dispatcher received message:", msg)
 			return nil
 		})
 

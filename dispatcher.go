@@ -7,6 +7,7 @@ package bunmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -161,6 +162,8 @@ func (d *dispatcher) Register(queue string, msg any, handler ConsumerHandler) er
 //	}
 //	dispatcher.ConsumeBlocking() // Blocks until shutdown signal
 func (d *dispatcher) ConsumeBlocking() {
+	logrus.Info("bunmq dispatcher started, waiting for messages...")
+
 	for _, cd := range d.consumersDefinition {
 		go d.consume(cd.queue, cd.msgType)
 	}
@@ -236,7 +239,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 			continue
 		}
 
-		if def.queueDefinition.withRetry && metadata.XCount > def.queueDefinition.retires {
+		if def.queueDefinition.withRetry && metadata.XCount >= def.queueDefinition.retires {
 			logrus.
 				WithContext(ctx).
 				WithField("messageID", metadata.MessageID).
@@ -256,15 +259,27 @@ func (d *dispatcher) consume(queue, msgType string) {
 			continue
 		}
 
-		if err = def.handler(ctx, ptr, metadata); err != nil {
+		bunErr := def.handler(ctx, ptr, metadata)
+		if bunErr != nil {
 			logrus.
 				WithContext(ctx).
-				WithError(err).
+				WithError(bunErr).
 				WithField("messageID", metadata.MessageID).
 				Error("bunmq error to process message")
 
-			if def.queueDefinition.withDLQ || err != RetryableError {
-				span.RecordError(err)
+			if def.queueDefinition.withRetry && errors.Is(bunErr, RetryableError) {
+				logrus.
+					WithContext(ctx).
+					WithField("messageID", metadata.MessageID).
+					Warn("bunmq send message to process latter")
+
+				_ = received.Nack(false, false)
+				span.End()
+				continue
+			}
+
+			if def.queueDefinition.withDLQ {
+				span.RecordError(bunErr)
 				_ = received.Ack(false)
 
 				if err = d.publishToDlq(def, &received); err != nil {
@@ -282,12 +297,10 @@ func (d *dispatcher) consume(queue, msgType string) {
 
 			logrus.
 				WithContext(ctx).
+				WithError(bunErr).
 				WithField("messageID", metadata.MessageID).
-				Warn("bunmq send message to process latter")
-
-			_ = received.Nack(false, false)
-			span.End()
-			continue
+				Error("bunmq failure to process message, in queue without DLQ or retry, removing from queue")
+			_ = received.Ack(false)
 		}
 
 		logrus.
