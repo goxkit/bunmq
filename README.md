@@ -71,11 +71,13 @@ type OrderCreated struct {
 
 func main() {
     // Define queue with retry and DLQ
-    queueDef := bunmq.
-        NewQueue("orders").
-        Durable(true).
-        WithRetry(time.Second*10, 3).
-        WithDQL()
+	queueDef := bunmq.
+		NewQueue("my-queue").
+		Durable(true).
+		WithMaxLength(100_000).
+		WithRetry(time.Second*10, 3).
+		WithDQL().
+		WithDLQMaxLength(10_000)
 
     // Create topology
     topology := bunmq.
@@ -370,9 +372,11 @@ topology := bunmq.NewTopology("amqp://user:pass@localhost:5672/my-vhost")
 | `Durable(bool)` | Survive broker restarts | `true` |
 | `Delete(bool)` | Auto-delete when unused | `false` |
 | `Exclusive(bool)` | Used by one connection only | `false` |
+| `WithMaxLength(max)` | Max number of messages retained in the queue | Not set |
 | `WithTTL(duration)` | Message time-to-live | Not set |
 | `WithRetry(ttl, retries)` | Retry configuration | Disabled |
 | `WithDQL()` | Enable dead letter queue | Disabled |
+| `WithDQLWithDLQMaxLength(max)` | Max number of messages retained in the DLQ  | Not set |
 
 ## Best Practices
 
