@@ -48,7 +48,7 @@ type (
 	// ConsumerHandler is a function type that defines message handler callbacks.
 	// It receives a context (for tracing), the unmarshaled message, and metadata about the delivery.
 	// Returns an error if the message processing fails.
-	ConsumerHandler = func(ctx context.Context, msg any, metadata any) error
+	ConsumerHandler = func(ctx context.Context, msg any, metadata *DeliveryMetadata) error
 
 	// ConsumerDefinition represents the configuration for a consumer.
 	// It holds information about the queue, message type, and handler function.
@@ -62,7 +62,7 @@ type (
 
 	// deliveryMetadata contains metadata extracted from an AMQP delivery.
 	// This includes message ID, retry count, message type, and headers.
-	deliveryMetadata struct {
+	DeliveryMetadata struct {
 		MessageID string
 		XCount    int64
 		Type      string
@@ -325,7 +325,7 @@ func (d *dispatcher) consume(queue, msgType string) {
 //
 // The retry count (XCount) is extracted from the x-death header that
 // RabbitMQ adds to messages that have been dead-lettered and requeued.
-func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*deliveryMetadata, error) {
+func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadata, error) {
 	typ := delivery.Type
 	if typ == "" {
 		logrus.
@@ -342,7 +342,7 @@ func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*deliveryMetadata
 		xCount = count
 	}
 
-	return &deliveryMetadata{
+	return &DeliveryMetadata{
 		MessageID: delivery.MessageId,
 		Type:      typ,
 		XCount:    xCount,

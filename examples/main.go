@@ -48,7 +48,7 @@ func main() {
 	dispatcher.Register(
 		queueDef.Name(),
 		&MyCustomMessage{},
-		func(ctx context.Context, msg any, metadata any) error {
+		func(ctx context.Context, msg any, metadata *bunmq.DeliveryMetadata) error {
 			logrus.Info("example dispatcher received message:", msg)
 			return nil
 		})
