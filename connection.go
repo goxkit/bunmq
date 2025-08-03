@@ -22,6 +22,9 @@ type (
 		// ConnectionState returns the TLS connection state if TLS is enabled.
 		ConnectionState() tls.ConnectionState
 
+		// IsClosed checks if the connection is closed.
+		IsClosed() bool
+
 		// Close gracefully closes the connection and all its channels.
 		// It waits for confirmation from the server.
 		Close() error

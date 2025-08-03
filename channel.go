@@ -76,6 +76,12 @@ type (
 		//   - immediate: Return message if it can't be delivered to a consumer immediately
 		//   - msg: The message to publish
 		Publish(exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
+
+		// NotifyClose returns a channel that receives notifications when the channel is closed.
+		IsClosed() bool
+
+		// NotifyClose returns a channel that receives notifications when the channel is closed.
+		Close() error
 	}
 )
 
