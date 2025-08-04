@@ -32,10 +32,25 @@ type (
 	// Dispatcher defines an interface for managing RabbitMQ message consumption.
 	// It provides methods to register message handlers and consume messages in a blocking manner.
 	Dispatcher interface {
-		// Register associates a queue with a message type and a handler function.
+		// RegisterByType associates a queue with a message type and a handler function.
 		// It ensures that messages from the specified queue are processed by the handler.
 		// Returns an error if the registration parameters are invalid or if the queue definition is not found.
 		RegisterByType(queue string, typE any, handler ConsumerHandler) error
+
+		// RegisterByExchange associates a queue with a message handler based on the exchange.
+		// It ensures that all messages from the specified exchange are processed by the handler.
+		// Returns an error if the registration parameters are invalid or if the queue definition is not found.
+		RegisterByExchange(queue string, msg any, exchange string, handler ConsumerHandler) error
+
+		// RegisterByRoutingKey associates a queue with a message handler based on the routing key.
+		// It ensures that all messages with the specified routing key are processed by the handler.
+		// Returns an error if the registration parameters are invalid or if the queue definition is not found.
+		RegisterByRoutingKey(queue string, msg any, routingKey string, handler ConsumerHandler) error
+
+		// RegisterByExchangeRoutingKey associates a queue with a message handler based on both exchange and routing key.
+		// It ensures that messages matching both the exchange and routing key are processed by the handler.
+		// Returns an error if the registration parameters are invalid or if the queue definition is not found.
+		RegisterByExchangeRoutingKey(queue string, msg any, exchange, routingKey string, handler ConsumerHandler) error
 
 		// ConsumeBlocking starts consuming messages and dispatches them to the registered handlers.
 		// This method blocks execution until the process is terminated by a signal.
@@ -167,6 +182,45 @@ func (d *dispatcher) RegisterByType(queue string, msg any, handler ConsumerHandl
 	return nil
 }
 
+// RegisterByExchange associates a queue with a message type and handler function based on the exchange.
+// This method registers a consumer that will handle all messages coming from a specific exchange,
+// regardless of the message type. This is useful for scenarios where you want to process all
+// messages from a particular exchange with the same handler logic.
+//
+// Parameters:
+//   - queue: The name of the queue to consume messages from (must match a queue in the topology)
+//   - msg: A zero-value instance of the message type to consume (used for type reflection)
+//   - exchange: The name of the exchange to filter messages by
+//   - handler: A function that processes messages from the specified exchange
+//
+// Example:
+//
+//	type NotificationMessage struct {
+//	    Type    string `json:"type"`
+//	    Content string `json:"content"`
+//	}
+//
+//	dispatcher.RegisterByExchange("notifications", NotificationMessage{}, "notification-exchange",
+//	    func(ctx context.Context, msg any, metadata *bunmq.DeliveryMetadata) error {
+//	        notification := msg.(*NotificationMessage)
+//	        logrus.Infof("Processing notification from exchange %s: %s",
+//	                     metadata.OriginExchange, notification.Content)
+//	        return nil
+//	    })
+//
+// The handler function receives:
+//   - A context with tracing information
+//   - The unmarshaled message (needs to be cast to the actual type)
+//   - Metadata about the delivery including the origin exchange, routing key, message ID, headers, and retry count
+//
+// If the handler returns an error:
+//   - RetryableError: Message will be requeued for processing later
+//   - Any other error: Message will be sent to the DLQ if configured
+//
+// Returns an error if:
+//   - Parameters are invalid (nil message, empty queue name, or empty exchange name)
+//   - A consumer is already registered for this message type
+//   - The queue definition is not found in the topology
 func (d *dispatcher) RegisterByExchange(queue string, msg any, exchange string, handler ConsumerHandler) error {
 	if msg == nil || queue == "" || exchange == "" {
 		logrus.Error("bunmq invalid parameters to register consumer")
@@ -201,6 +255,45 @@ func (d *dispatcher) RegisterByExchange(queue string, msg any, exchange string, 
 	return nil
 }
 
+// RegisterByRoutingKey associates a queue with a message type and handler function based on the routing key.
+// This method registers a consumer that will handle all messages with a specific routing key,
+// regardless of the exchange they originated from. This is useful for scenarios where you want
+// to process messages based on their routing pattern rather than their type or source exchange.
+//
+// Parameters:
+//   - queue: The name of the queue to consume messages from (must match a queue in the topology)
+//   - msg: A zero-value instance of the message type to consume (used for type reflection)
+//   - routingKey: The routing key to filter messages by
+//   - handler: A function that processes messages with the specified routing key
+//
+// Example:
+//
+//	type OrderEvent struct {
+//	    OrderID string `json:"order_id"`
+//	    Action  string `json:"action"`
+//	}
+//
+//	dispatcher.RegisterByRoutingKey("order-events", OrderEvent{}, "order.created",
+//	    func(ctx context.Context, msg any, metadata *bunmq.DeliveryMetadata) error {
+//	        event := msg.(*OrderEvent)
+//	        logrus.Infof("Processing order creation event with routing key %s: %s",
+//	                     metadata.RoutingKey, event.OrderID)
+//	        return nil
+//	    })
+//
+// The handler function receives:
+//   - A context with tracing information
+//   - The unmarshaled message (needs to be cast to the actual type)
+//   - Metadata about the delivery including the origin exchange, routing key, message ID, headers, and retry count
+//
+// If the handler returns an error:
+//   - RetryableError: Message will be requeued for processing later
+//   - Any other error: Message will be sent to the DLQ if configured
+//
+// Returns an error if:
+//   - Parameters are invalid (nil message, empty queue name, or empty routing key)
+//   - A consumer is already registered for this message type
+//   - The queue definition is not found in the topology
 func (d *dispatcher) RegisterByRoutingKey(queue string, msg any, routingKey string, handler ConsumerHandler) error {
 	if msg == nil || queue == "" || routingKey == "" {
 		logrus.Error("bunmq invalid parameters to register consumer")
@@ -235,6 +328,47 @@ func (d *dispatcher) RegisterByRoutingKey(queue string, msg any, routingKey stri
 	return nil
 }
 
+// RegisterByExchangeRoutingKey associates a queue with a message type and handler function based on both exchange and routing key.
+// This method registers a consumer that will handle messages matching both a specific exchange and routing key combination.
+// This provides the most precise message filtering, allowing you to target very specific message flows in complex
+// routing topologies where multiple exchanges and routing patterns are used.
+//
+// Parameters:
+//   - queue: The name of the queue to consume messages from (must match a queue in the topology)
+//   - msg: A zero-value instance of the message type to consume (used for type reflection)
+//   - exchange: The name of the exchange to filter messages by
+//   - routingKey: The routing key to filter messages by
+//   - handler: A function that processes messages matching both the exchange and routing key
+//
+// Example:
+//
+//	type PaymentProcessed struct {
+//	    PaymentID string  `json:"payment_id"`
+//	    Amount    float64 `json:"amount"`
+//	    Status    string  `json:"status"`
+//	}
+//
+//	dispatcher.RegisterByExchangeRoutingKey("payments", PaymentProcessed{}, "payment-exchange", "payment.processed",
+//	    func(ctx context.Context, msg any, metadata *bunmq.DeliveryMetadata) error {
+//	        payment := msg.(*PaymentProcessed)
+//	        logrus.Infof("Processing payment from exchange %s with routing key %s: %s (%.2f)",
+//	                     metadata.OriginExchange, metadata.RoutingKey, payment.PaymentID, payment.Amount)
+//	        return nil
+//	    })
+//
+// The handler function receives:
+//   - A context with tracing information
+//   - The unmarshaled message (needs to be cast to the actual type)
+//   - Metadata about the delivery including the origin exchange, routing key, message ID, headers, and retry count
+//
+// If the handler returns an error:
+//   - RetryableError: Message will be requeued for processing later
+//   - Any other error: Message will be sent to the DLQ if configured
+//
+// Returns an error if:
+//   - Parameters are invalid (nil message, empty queue name, empty exchange name, or empty routing key)
+//   - A consumer is already registered for this message type
+//   - The queue definition is not found in the topology
 func (d *dispatcher) RegisterByExchangeRoutingKey(queue string, msg any, exchange, routingKey string, handler ConsumerHandler) error {
 	if msg == nil || queue == "" || exchange == "" || routingKey == "" {
 		logrus.Error("bunmq invalid parameters to register consumer")
