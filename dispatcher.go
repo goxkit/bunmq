@@ -104,7 +104,7 @@ func NewDispatcher(channel AMQPChannel, queueDefinitions []*QueueDefinition) *di
 	}
 }
 
-// Register associates a queue with a message type and a handler function.
+// RegisterByType associates a queue with a message type and a handler function.
 // It validates the parameters and ensures that the queue definition exists.
 // Returns an error if the registration parameters are invalid or if the queue definition is not found.
 //
@@ -120,7 +120,7 @@ func NewDispatcher(channel AMQPChannel, queueDefinitions []*QueueDefinition) *di
 //	    Amount float64 `json:"amount"`
 //	}
 //
-//	dispatcher.Register("orders", OrderCreated{}, func(ctx context.Context, msg any, metadata any) error {
+//	dispatcher.RegisterByType("orders", OrderCreated{}, func(ctx context.Context, msg any, metadata any) error {
 //	    order := msg.(*OrderCreated)
 //	    // Process the order
 //	    return nil
