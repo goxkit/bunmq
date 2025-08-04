@@ -329,11 +329,11 @@ func (d *dispatcher) consume(typ ConsumerDefinitionType, queue, msgType, exchang
 		}
 
 		//TODO: Validate ConsumerDefType and based on the type, check if this message is for this consumer
-		def, ok := d.consumersDefinition[msgType]
+		def, ok := d.consumersDefinition[metadata.Type]
 		if !ok {
 			logrus.
 				WithField("messageID", metadata.MessageID).
-				Warnf("bunmq no consumer found for message type: %s", msgType)
+				Warnf("bunmq no consumer found for message type: %s", metadata.Type)
 			_ = received.Ack(false)
 			continue
 		}
