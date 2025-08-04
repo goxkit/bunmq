@@ -328,9 +328,8 @@ func (d *dispatcher) consume(typ ConsumerDefinitionType, queue, msgType, exchang
 			continue
 		}
 
-		//TODO: Validate ConsumerDefType and based on the type, check if this message is for this consumer
-		def, ok := d.consumersDefinition[metadata.Type]
-		if !ok {
+		def, err := d.extractDefByType(typ, metadata)
+		if err != nil {
 			logrus.
 				WithField("messageID", metadata.MessageID).
 				Warnf("bunmq no consumer found for message type: %s", metadata.Type)
@@ -468,6 +467,39 @@ func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadata
 		RoutingKey:     delivery.RoutingKey,
 		Headers:        delivery.Headers,
 	}, nil
+}
+
+func (d *dispatcher) extractDefByType(typ ConsumerDefinitionType, metadata *DeliveryMetadata) (*ConsumerDefinition, error) {
+	switch typ {
+	case ConsumerDefinitionByType:
+		def, ok := d.consumersDefinition[metadata.Type]
+		if !ok {
+			return nil, fmt.Errorf("bunmq no consumer found for message type: %s", metadata.Type)
+		}
+		return def, nil
+	case ConsumerDefinitionByExchange:
+		for _, def := range d.consumersDefinition {
+			if def.exchange == metadata.OriginExchange {
+				return def, nil
+			}
+		}
+	case ConsumerDefinitionByRoutingKey:
+		for _, def := range d.consumersDefinition {
+			if def.routingKey == metadata.RoutingKey {
+				return def, nil
+			}
+		}
+	case ConsumerDefinitionByExchangeRoutingKey:
+		for _, def := range d.consumersDefinition {
+			if def.exchange == metadata.OriginExchange && def.routingKey == metadata.RoutingKey {
+				return def, nil
+			}
+		}
+	default:
+		return nil, fmt.Errorf("bunmq unknown consumer definition type: %d", typ)
+	}
+
+	return nil, fmt.Errorf("bunmq no consumer definition found for type: %d", typ)
 }
 
 // publishToDlq publishes a message to the dead-letter queue.
