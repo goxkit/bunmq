@@ -101,7 +101,7 @@ func main() {
     // Create dispatcher and register handler
     dispatcher := bunmq.NewDispatcher(channel, []*bunmq.QueueDefinition{queueDef})
     
-    err = dispatcher.Register("orders", OrderCreated{}, func(ctx context.Context, msg any, metadata any) error {
+    err = dispatcher.RegisterByType("orders", OrderCreated{}, func(ctx context.Context, msg any, metadata any) error {
         order := msg.(*OrderCreated)
         logrus.Infof("Processing order: %s, Amount: %.2f", order.ID, order.Amount)
         return nil
@@ -214,7 +214,7 @@ The dispatcher handles message routing to type-safe handlers with automatic retr
 dispatcher := bunmq.NewDispatcher(channel, []*bunmq.QueueDefinition{queueDef})
 
 // Register typed handler
-err := dispatcher.Register("orders", OrderCreated{}, func(ctx context.Context, msg any, metadata any) error {
+err := dispatcher.RegisterByType("orders", OrderCreated{}, func(ctx context.Context, msg any, metadata any) error {
     order := msg.(*OrderCreated)
     
     // Process the order
