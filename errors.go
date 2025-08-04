@@ -31,6 +31,9 @@ var (
 	// NullableChannelError is returned when a channel operation is attempted on a nil channel.
 	NullableChannelError = NewBunMQError("channel cant be null")
 
+	// ConsumerAlreadyRegisteredError is returned when a consumer is already registered for a specific queue.
+	ConsumerAlreadyRegisteredForTheMessageError = NewBunMQError("consumer already registered for the message")
+
 	// NotFoundQueueDefinitionError is returned when a queue definition cannot be found.
 	NotFoundQueueDefinitionError = NewBunMQError("not found queue definition")
 

@@ -45,7 +45,7 @@ func main() {
 
 	dispatcher := bunmq.NewDispatcher(channel, []*bunmq.QueueDefinition{queueDef})
 
-	dispatcher.Register(
+	dispatcher.RegisterByType(
 		queueDef.Name(),
 		&MyCustomMessage{},
 		func(ctx context.Context, msg any, metadata *bunmq.DeliveryMetadata) error {
