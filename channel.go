@@ -77,27 +77,39 @@ type (
 		//   - msg: The message to publish
 		Publish(exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
 
-		// NotifyClose returns a channel that receives notifications when the channel is closed.
+		// IsClosed checks if the channel is closed.
 		IsClosed() bool
 
-		// NotifyClose returns a channel that receives notifications when the channel is closed.
+		// Close closes the channel gracefully.
 		Close() error
+
+		// NotifyClose returns a channel that receives notifications when the channel is closed.
+		// This is essential for connection management and automatic reconnection strategies.
+		NotifyClose(receiver chan *amqp.Error) chan *amqp.Error
+
+		// NotifyCancel returns a channel that receives notifications when a consumer is cancelled.
+		// This helps detect when the server cancels consumers due to various conditions.
+		NotifyCancel(receiver chan string) chan string
 	}
 )
 
 // dial is a variable that holds the function to establish a connection to RabbitMQ.
 // It allows for mocking in tests.
-var dial = func(connectionString string) (RMQConnection, error) {
-	return amqp.Dial(connectionString)
+var dial = func(appName, connectionString string) (RMQConnection, error) {
+	return amqp.DialConfig(connectionString, amqp.Config{
+		Properties: amqp.Table{
+			"connection_name": appName,
+		},
+	})
 }
 
 // NewConnection creates a new RabbitMQ connection and channel.
 // It establishes a connection to the RabbitMQ server using the provided configuration,
 // then creates a channel on that connection.
 // Returns the connection, channel, and any error encountered.
-func NewConnection(connectionString string) (RMQConnection, AMQPChannel, error) {
+func NewConnection(appName, connectionString string) (RMQConnection, AMQPChannel, error) {
 	logrus.Debug("bunmq connecting to rabbitmq...")
-	conn, err := dial(connectionString)
+	conn, err := dial(appName, connectionString)
 	if err != nil {
 		logrus.WithError(err).Error("bunmq failure to connect to the broker")
 		return nil, nil, rabbitMQDialError(err)

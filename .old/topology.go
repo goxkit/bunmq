@@ -41,47 +41,42 @@ type (
 
 		// Apply declares all the exchanges, queues, and bindings defined in the topology.
 		// Returns an error if any part of the topology cannot be applied.
-		Apply() (ConnectionManager, error)
+		Apply() (RMQConnection, AMQPChannel, error)
 	}
 
 	// topology is the concrete implementation of the Topology interface.
 	// It maintains collections of exchanges, queues, and their bindings,
 	// and provides methods to declare and apply them to a RabbitMQ broker.
 	topology struct {
-		connectionString  string
-		appName           string
-		channel           AMQPChannel
-		queues            map[string]*QueueDefinition
-		queuesBinding     map[string]*QueueBindingDefinition
-		exchanges         []*ExchangeDefinition
-		exchangesBinding  []*ExchangeBindingDefinition
-		connectionManager ConnectionManager
+		connectionString string
+		conn             RMQConnection
+		channel          AMQPChannel
+		queues           map[string]*QueueDefinition
+		queuesBinding    map[string]*QueueBindingDefinition
+		exchanges        []*ExchangeDefinition
+		exchangesBinding []*ExchangeBindingDefinition
 	}
 )
 
 // NewTopology creates a new topology instance with the provided configuration.
 // It initializes empty collections for queues and queue bindings.
-func NewTopology(appName, connectionString string) Topology {
+func NewTopology(connectionString string) *topology {
 	return &topology{
 		connectionString: connectionString,
-		appName:          appName,
 		queues:           map[string]*QueueDefinition{},
-		queuesBinding:    map[string]*QueueBindingDefinition{},
-		exchanges:        []*ExchangeDefinition{},
-		exchangesBinding: []*ExchangeBindingDefinition{},
-	}
+		queuesBinding:    map[string]*QueueBindingDefinition{}}
 }
 
 // Queue adds a queue definition to the topology.
 // The queue is indexed by its name for easy retrieval.
-func (t *topology) Queue(q *QueueDefinition) Topology {
+func (t *topology) Queue(q *QueueDefinition) *topology {
 	t.queues[q.name] = q
 	return t
 }
 
 // Queues adds multiple queue definitions to the topology.
 // Each queue is indexed by its name for easy retrieval.
-func (t *topology) Queues(queues []*QueueDefinition) Topology {
+func (t *topology) Queues(queues []*QueueDefinition) *topology {
 	for _, q := range queues {
 		t.queues[q.name] = q
 	}
@@ -105,26 +100,26 @@ func (t *topology) GetQueueDefinition(queueName string) (*QueueDefinition, error
 }
 
 // Exchange adds an exchange definition to the topology.
-func (t *topology) Exchange(e *ExchangeDefinition) Topology {
+func (t *topology) Exchange(e *ExchangeDefinition) *topology {
 	t.exchanges = append(t.exchanges, e)
 	return t
 }
 
 // Exchanges adds multiple exchange definitions to the topology.
-func (t *topology) Exchanges(e []*ExchangeDefinition) Topology {
+func (t *topology) Exchanges(e []*ExchangeDefinition) *topology {
 	t.exchanges = append(t.exchanges, e...)
 	return t
 }
 
 // ExchangeBinding adds an exchange-to-exchange binding to the topology.
-func (t *topology) ExchangeBinding(b *ExchangeBindingDefinition) Topology {
+func (t *topology) ExchangeBinding(b *ExchangeBindingDefinition) *topology {
 	t.exchangesBinding = append(t.exchangesBinding, b)
 	return t
 }
 
 // QueueBinding adds an exchange-to-queue binding to the topology.
 // The binding is indexed by the queue name.
-func (t *topology) QueueBinding(b *QueueBindingDefinition) Topology {
+func (t *topology) QueueBinding(b *QueueBindingDefinition) *topology {
 	t.queuesBinding[b.queue] = b
 	return t
 }
@@ -140,44 +135,38 @@ func (t *topology) QueueBinding(b *QueueBindingDefinition) Topology {
 // When declaring queues, any retry queues and dead-letter queues specified in the queue
 // definitions are automatically created with appropriate arguments for message routing.
 //
-// Returns the connection, channel and an error if any part of the topology cannot be applied.
+// Returns the topology and an error if any part of the topology cannot be applied.
 // Common error cases include:
 //   - Channel is nil (NullableChannelError)
 //   - Exchange declaration failure (permission issues, invalid arguments)
 //   - Queue declaration failure (permission issues, invalid arguments)
 //   - Binding failure (non-existent queues or exchanges)
-func (t *topology) Apply() (ConnectionManager, error) {
-	manager, err := NewConnectionManager(t.appName, t.connectionString)
+func (t *topology) Apply() (RMQConnection, AMQPChannel, error) {
+	conn, ch, err := NewConnection(t.connectionString)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	t.connectionManager = manager
-
-	ch, err := manager.GetChannel()
-	if err != nil {
-		return nil, err
-	}
-
+	t.conn = conn
 	t.channel = ch
 
 	if err := t.declareExchanges(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := t.declareQueues(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := t.bindQueues(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := t.bindExchanges(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return t.connectionManager, nil
+	return t.conn, t.channel, nil
 }
 
 // declareExchanges declares all the exchanges defined in the topology.

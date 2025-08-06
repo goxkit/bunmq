@@ -28,5 +28,9 @@ type (
 		// Close gracefully closes the connection and all its channels.
 		// It waits for confirmation from the server.
 		Close() error
+
+		// NotifyClose returns a channel that receives notifications when the connection is closed.
+		// This is essential for connection management and automatic reconnection strategies.
+		NotifyClose(receiver chan *amqp.Error) chan *amqp.Error
 	}
 )

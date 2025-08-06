@@ -22,7 +22,7 @@ func main() {
 		WithDLQMaxLength(10_000)
 
 	topology := bunmq.
-		NewTopology("amqp://guest:guest@localhost:5672/").
+		NewTopology("my-app", "amqp://guest:guest@localhost:5672/").
 		Queue(queueDef).
 		Exchange(
 			bunmq.
@@ -37,13 +37,13 @@ func main() {
 				RoutingKey("my-routing-key"),
 		)
 
-	conn, channel, err := topology.Apply()
+	manager, err := topology.Apply()
 	if err != nil {
 		panic(err)
 	}
-	defer conn.Close()
+	defer manager.Close()
 
-	dispatcher := bunmq.NewDispatcher(channel, []*bunmq.QueueDefinition{queueDef})
+	dispatcher := bunmq.NewDispatcher(manager, []*bunmq.QueueDefinition{queueDef})
 
 	dispatcher.RegisterByType(
 		queueDef.Name(),
