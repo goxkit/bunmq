@@ -49,6 +49,7 @@ type (
 	// and provides methods to declare and apply them to a RabbitMQ broker.
 	topology struct {
 		connectionString  string
+		appName           string
 		channel           AMQPChannel
 		queues            map[string]*QueueDefinition
 		queuesBinding     map[string]*QueueBindingDefinition
@@ -60,9 +61,10 @@ type (
 
 // NewTopology creates a new topology instance with the provided configuration.
 // It initializes empty collections for queues and queue bindings.
-func NewTopology(connectionString string) Topology {
+func NewTopology(appName, connectionString string) Topology {
 	return &topology{
 		connectionString: connectionString,
+		appName:          appName,
 		queues:           map[string]*QueueDefinition{},
 		queuesBinding:    map[string]*QueueBindingDefinition{},
 		exchanges:        []*ExchangeDefinition{},
@@ -145,7 +147,7 @@ func (t *topology) QueueBinding(b *QueueBindingDefinition) Topology {
 //   - Queue declaration failure (permission issues, invalid arguments)
 //   - Binding failure (non-existent queues or exchanges)
 func (t *topology) Apply() (ConnectionManager, error) {
-	manager, err := NewConnectionManager(t.connectionString)
+	manager, err := NewConnectionManager(t.appName, t.connectionString)
 	if err != nil {
 		return nil, err
 	}

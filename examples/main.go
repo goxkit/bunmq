@@ -22,7 +22,7 @@ func main() {
 		WithDLQMaxLength(10_000)
 
 	topology := bunmq.
-		NewTopology("amqp://guest:guest@localhost:5672/").
+		NewTopology("my-app", "amqp://guest:guest@localhost:5672/").
 		Queue(queueDef).
 		Exchange(
 			bunmq.

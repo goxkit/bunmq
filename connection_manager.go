@@ -38,6 +38,7 @@ type (
 	// connectionManager implements ConnectionManager with automatic reconnection capabilities
 	connectionManager struct {
 		connectionString  string
+		appName           string
 		conn              RMQConnection
 		ch                AMQPChannel
 		mu                sync.RWMutex
@@ -77,7 +78,7 @@ var DefaultReconnectionConfig = ReconnectionConfig{
 }
 
 // NewConnectionManager creates a new connection manager with automatic reconnection
-func NewConnectionManager(connectionString string, config ...ReconnectionConfig) (ConnectionManager, error) {
+func NewConnectionManager(appName, connectionString string, config ...ReconnectionConfig) (ConnectionManager, error) {
 	cfg := DefaultReconnectionConfig
 	if len(config) > 0 {
 		cfg = config[0]
@@ -87,6 +88,7 @@ func NewConnectionManager(connectionString string, config ...ReconnectionConfig)
 
 	cm := &connectionManager{
 		connectionString:     connectionString,
+		appName:              appName,
 		maxReconnectAttempts: cfg.MaxAttempts,
 		reconnectDelay:       cfg.InitialDelay,
 		reconnectBackoffMax:  cfg.BackoffMax,
@@ -114,7 +116,7 @@ func (cm *connectionManager) connect() error {
 	logrus.Info("bunmq establishing connection...")
 
 	// Create connection
-	conn, ch, err := NewConnection(cm.connectionString)
+	conn, ch, err := NewConnection(cm.appName, cm.connectionString)
 	if err != nil {
 		logrus.WithError(err).Error("bunmq failed to establish connection")
 		return err

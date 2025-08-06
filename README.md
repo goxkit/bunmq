@@ -81,7 +81,7 @@ func main() {
 
     // Create topology
     topology := bunmq.
-        NewTopology("amqp://guest:guest@localhost:5672/").
+        NewTopology("my-app", "amqp://guest:guest@localhost:5672/").
         Queue(queueDef).
         Exchange(bunmq.NewDirectExchange("orders")).
         QueueBinding(
@@ -92,14 +92,14 @@ func main() {
         )
 
     // Apply topology and get connection/channel
-    conn, channel, err := topology.Apply()
+    manager, err := topology.Apply()
     if err != nil {
         panic(err)
     }
     defer conn.Close()
 
     // Create dispatcher and register handler
-    dispatcher := bunmq.NewDispatcher(channel, []*bunmq.QueueDefinition{queueDef})
+    dispatcher := bunmq.NewDispatcher(manager, []*bunmq.QueueDefinition{queueDef})
     
     err = dispatcher.RegisterByType("orders", OrderCreated{}, func(ctx context.Context, msg any, metadata any) error {
         order := msg.(*OrderCreated)
@@ -122,7 +122,7 @@ func main() {
 The topology defines the complete RabbitMQ infrastructure including exchanges, queues, and their bindings. This ensures your messaging infrastructure is properly configured before your application starts.
 
 ```go
-topology := bunmq.NewTopology("amqp://guest:guest@localhost:5672/")
+topology := bunmq.NewTopology("my-app", "amqp://guest:guest@localhost:5672/")
 
 // Add exchanges
 topology.Exchange(bunmq.NewDirectExchange("orders"))
@@ -145,7 +145,7 @@ topology.QueueBinding(
 )
 
 // Apply the topology
-conn, channel, err := topology.Apply()
+manager, err := topology.Apply()
 ```
 
 ### Queues
@@ -211,7 +211,7 @@ err = publisher.PublishDeadline(ctx, &exchange, nil, &routingKey, message)
 The dispatcher handles message routing to type-safe handlers with automatic retry and error handling:
 
 ```go
-dispatcher := bunmq.NewDispatcher(channel, []*bunmq.QueueDefinition{queueDef})
+dispatcher := bunmq.NewDispatcher(manager, []*bunmq.QueueDefinition{queueDef})
 
 // Register typed handler
 err := dispatcher.RegisterByType("orders", OrderCreated{}, func(ctx context.Context, msg any, metadata any) error {
@@ -356,13 +356,13 @@ topology.Queues([]*bunmq.QueueDefinition{
 
 ```go
 // Basic connection
-topology := bunmq.NewTopology("amqp://guest:guest@localhost:5672/")
+topology := bunmq.NewTopology("my-app", "amqp://guest:guest@localhost:5672/")
 
 // With TLS
-topology := bunmq.NewTopology("amqps://user:pass@rabbitmq.example.com:5671/")
+topology := bunmq.NewTopology("my-app", "amqps://user:pass@rabbitmq.example.com:5671/")
 
 // With vhost
-topology := bunmq.NewTopology("amqp://user:pass@localhost:5672/my-vhost")
+topology := bunmq.NewTopology("my-app", "amqp://user:pass@localhost:5672/my-vhost")
 ```
 
 ### Queue Configuration Options

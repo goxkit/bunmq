@@ -95,17 +95,21 @@ type (
 
 // dial is a variable that holds the function to establish a connection to RabbitMQ.
 // It allows for mocking in tests.
-var dial = func(connectionString string) (RMQConnection, error) {
-	return amqp.Dial(connectionString)
+var dial = func(appName, connectionString string) (RMQConnection, error) {
+	return amqp.DialConfig(connectionString, amqp.Config{
+		Properties: amqp.Table{
+			"connection_name": appName,
+		},
+	})
 }
 
 // NewConnection creates a new RabbitMQ connection and channel.
 // It establishes a connection to the RabbitMQ server using the provided configuration,
 // then creates a channel on that connection.
 // Returns the connection, channel, and any error encountered.
-func NewConnection(connectionString string) (RMQConnection, AMQPChannel, error) {
+func NewConnection(appName, connectionString string) (RMQConnection, AMQPChannel, error) {
 	logrus.Debug("bunmq connecting to rabbitmq...")
-	conn, err := dial(connectionString)
+	conn, err := dial(appName, connectionString)
 	if err != nil {
 		logrus.WithError(err).Error("bunmq failure to connect to the broker")
 		return nil, nil, rabbitMQDialError(err)
