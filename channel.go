@@ -77,11 +77,19 @@ type (
 		//   - msg: The message to publish
 		Publish(exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
 
-		// NotifyClose returns a channel that receives notifications when the channel is closed.
+		// IsClosed checks if the channel is closed.
 		IsClosed() bool
 
-		// NotifyClose returns a channel that receives notifications when the channel is closed.
+		// Close closes the channel gracefully.
 		Close() error
+
+		// NotifyClose returns a channel that receives notifications when the channel is closed.
+		// This is essential for connection management and automatic reconnection strategies.
+		NotifyClose(receiver chan *amqp.Error) chan *amqp.Error
+
+		// NotifyCancel returns a channel that receives notifications when a consumer is cancelled.
+		// This helps detect when the server cancels consumers due to various conditions.
+		NotifyCancel(receiver chan string) chan string
 	}
 )
 

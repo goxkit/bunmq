@@ -5,8 +5,6 @@
 package bunmq
 
 import (
-	"sync"
-
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 )
@@ -43,51 +41,42 @@ type (
 
 		// Apply declares all the exchanges, queues, and bindings defined in the topology.
 		// Returns an error if any part of the topology cannot be applied.
-		Apply() error
-
-		// GetConnectionManager returns the underlying connection manager
-		GetConnectionManager() ConnectionManager
-
-		// ApplyWithReconnection applies the topology with automatic reconnection support
-		ApplyWithReconnection(config ...ReconnectionConfig) (ConnectionManager, error)
-
-		// IsHealthy checks if the underlying connections are healthy
-		IsHealthy() bool
-
-		// Reconnect manually triggers a reconnection
-		Reconnect() error
+		Apply() (RMQConnection, AMQPChannel, error)
 	}
 
-	// resilientTopology implements ResilientTopology with connection management
+	// topology is the concrete implementation of the Topology interface.
+	// It maintains collections of exchanges, queues, and their bindings,
+	// and provides methods to declare and apply them to a RabbitMQ broker.
 	topology struct {
-		channel           AMQPChannel
-		queues            map[string]*QueueDefinition
-		queuesBinding     map[string]*QueueBindingDefinition
-		exchanges         []*ExchangeDefinition
-		exchangesBinding  []*ExchangeBindingDefinition
-		connectionManager ConnectionManager
-		mu                sync.RWMutex
-		applied           bool
+		connectionString string
+		conn             RMQConnection
+		channel          AMQPChannel
+		queues           map[string]*QueueDefinition
+		queuesBinding    map[string]*QueueBindingDefinition
+		exchanges        []*ExchangeDefinition
+		exchangesBinding []*ExchangeBindingDefinition
 	}
 )
 
-// NewResilientTopology creates a new resilient topology with automatic reconnection
-func NewTopology(manager ConnectionManager) Topology {
+// NewTopology creates a new topology instance with the provided configuration.
+// It initializes empty collections for queues and queue bindings.
+func NewTopology(connectionString string) *topology {
 	return &topology{
-		queues:            map[string]*QueueDefinition{},
-		queuesBinding:     map[string]*QueueBindingDefinition{},
-		connectionManager: manager,
-	}
+		connectionString: connectionString,
+		queues:           map[string]*QueueDefinition{},
+		queuesBinding:    map[string]*QueueBindingDefinition{}}
 }
 
-// Queue adds a queue definition to the topology (chainable)
-func (t *topology) Queue(q *QueueDefinition) Topology {
+// Queue adds a queue definition to the topology.
+// The queue is indexed by its name for easy retrieval.
+func (t *topology) Queue(q *QueueDefinition) *topology {
 	t.queues[q.name] = q
 	return t
 }
 
-// Queues adds multiple queue definitions to the topology (chainable)
-func (t *topology) Queues(queues []*QueueDefinition) Topology {
+// Queues adds multiple queue definitions to the topology.
+// Each queue is indexed by its name for easy retrieval.
+func (t *topology) Queues(queues []*QueueDefinition) *topology {
 	for _, q := range queues {
 		t.queues[q.name] = q
 	}
@@ -110,26 +99,27 @@ func (t *topology) GetQueueDefinition(queueName string) (*QueueDefinition, error
 	return nil, NotFoundQueueDefinitionError
 }
 
-// Exchange adds an exchange definition to the topology (chainable)
-func (t *topology) Exchange(e *ExchangeDefinition) Topology {
+// Exchange adds an exchange definition to the topology.
+func (t *topology) Exchange(e *ExchangeDefinition) *topology {
 	t.exchanges = append(t.exchanges, e)
 	return t
 }
 
-// Exchanges adds multiple exchange definitions to the topology (chainable)
-func (t *topology) Exchanges(e []*ExchangeDefinition) Topology {
+// Exchanges adds multiple exchange definitions to the topology.
+func (t *topology) Exchanges(e []*ExchangeDefinition) *topology {
 	t.exchanges = append(t.exchanges, e...)
 	return t
 }
 
-// ExchangeBinding adds an exchange-to-exchange binding to the topology (chainable)
-func (t *topology) ExchangeBinding(b *ExchangeBindingDefinition) Topology {
+// ExchangeBinding adds an exchange-to-exchange binding to the topology.
+func (t *topology) ExchangeBinding(b *ExchangeBindingDefinition) *topology {
 	t.exchangesBinding = append(t.exchangesBinding, b)
 	return t
 }
 
-// QueueBinding adds an exchange-to-queue binding to the topology (chainable)
-func (t *topology) QueueBinding(b *QueueBindingDefinition) Topology {
+// QueueBinding adds an exchange-to-queue binding to the topology.
+// The binding is indexed by the queue name.
+func (t *topology) QueueBinding(b *QueueBindingDefinition) *topology {
 	t.queuesBinding[b.queue] = b
 	return t
 }
@@ -151,31 +141,32 @@ func (t *topology) QueueBinding(b *QueueBindingDefinition) Topology {
 //   - Exchange declaration failure (permission issues, invalid arguments)
 //   - Queue declaration failure (permission issues, invalid arguments)
 //   - Binding failure (non-existent queues or exchanges)
-func (t *topology) Apply() error {
-	ch, err := t.connectionManager.GetChannel()
+func (t *topology) Apply() (RMQConnection, AMQPChannel, error) {
+	conn, ch, err := NewConnection(t.connectionString)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
+	t.conn = conn
 	t.channel = ch
 
 	if err := t.declareExchanges(); err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	if err := t.declareQueues(); err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	if err := t.bindQueues(); err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	if err := t.bindExchanges(); err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	return nil
+	return t.conn, t.channel, nil
 }
 
 // declareExchanges declares all the exchanges defined in the topology.
@@ -297,149 +288,4 @@ func (t *topology) bindExchanges() error {
 	logrus.Info("bunmq exchanges bonded")
 
 	return nil
-}
-
-// ApplyWithReconnection applies the topology with automatic reconnection support
-func (t *topology) ApplyWithReconnection(config ...ReconnectionConfig) (ConnectionManager, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	// Create connection manager
-	cm, err := NewConnectionManager(t.connectionString, config...)
-	if err != nil {
-		return nil, err
-	}
-
-	t.connectionManager = cm
-
-	// Set up reconnection callback to reapply topology
-	cm.SetReconnectCallback(t.reapplyTopology)
-
-	// Apply initial topology
-	if err := t.applyTopologyToManager(); err != nil {
-		cm.Close()
-		return nil, err
-	}
-
-	t.applied = true
-	return cm, nil
-}
-
-// reapplyTopology is called when reconnection occurs
-func (t *topology) reapplyTopology(conn RMQConnection, ch AMQPChannel) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if !t.applied {
-		return
-	}
-
-	logrus.Info("bunmq reapplying topology after reconnection...")
-
-	// Update topology's connection and channel
-	t.channel = ch
-
-	// Reapply topology declarations
-	if err := t.declareExchanges(); err != nil {
-		logrus.WithError(err).Error("bunmq failed to redeclare exchanges")
-		return
-	}
-
-	if err := t.declareQueues(); err != nil {
-		logrus.WithError(err).Error("bunmq failed to redeclare queues")
-		return
-	}
-
-	if err := t.bindQueues(); err != nil {
-		logrus.WithError(err).Error("bunmq failed to rebind queues")
-		return
-	}
-
-	if err := t.bindExchanges(); err != nil {
-		logrus.WithError(err).Error("bunmq failed to rebind exchanges")
-		return
-	}
-
-	logrus.Info("bunmq topology reapplied successfully")
-}
-
-// applyTopologyToManager applies the topology using the connection manager
-func (t *topology) applyTopologyToManager() error {
-	conn, err := t.connectionManager.GetConnection()
-	if err != nil {
-		return err
-	}
-
-	ch, err := t.connectionManager.GetChannel()
-	if err != nil {
-		return err
-	}
-
-	// Update topology's connection and channel
-	t.channel = ch
-
-	// Apply topology declarations
-	if err := t.declareExchanges(); err != nil {
-		return err
-	}
-
-	if err := t.declareQueues(); err != nil {
-		return err
-	}
-
-	if err := t.bindQueues(); err != nil {
-		return err
-	}
-
-	if err := t.bindExchanges(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// GetConnectionManager returns the underlying connection manager
-func (t *topology) GetConnectionManager() ConnectionManager {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.connectionManager
-}
-
-// IsHealthy checks if the underlying connections are healthy
-func (t *topology) IsHealthy() bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	if t.connectionManager == nil {
-		return false
-	}
-
-	return t.connectionManager.IsHealthy()
-}
-
-// Reconnect manually triggers a reconnection
-func (t *topology) Reconnect() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.connectionManager == nil {
-		return NewBunMQError("connection manager not initialized")
-	}
-
-	// Close current connection to trigger reconnection
-	if err := t.connectionManager.Close(); err != nil {
-		logrus.WithError(err).Error("bunmq error closing connection manager for reconnection")
-	}
-
-	// Create new connection manager
-	cm, err := NewConnectionManager(t.connectionManager.GetConnectionString())
-	if err != nil {
-		return err
-	}
-
-	t.connectionManager = cm
-	cm.SetReconnectCallback(t.reapplyTopology)
-
-	// Reapply topology
-	return t.applyTopologyToManager()
 }
