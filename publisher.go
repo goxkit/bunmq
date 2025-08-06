@@ -54,7 +54,7 @@ type (
 	// It handles the details of marshaling messages, setting headers, and publishing to RabbitMQ.
 	publisher struct {
 		appName string
-		channel AMQPChannel
+		manager ConnectionManager
 	}
 )
 
@@ -64,8 +64,8 @@ const (
 )
 
 // NewPublisher creates a new publisher instance with the provided configuration and AMQP channel.
-func NewPublisher(appName string, channel AMQPChannel) Publisher {
-	return &publisher{appName, channel}
+func NewPublisher(appName string, manager ConnectionManager) Publisher {
+	return &publisher{appName, manager}
 }
 
 // SimplePublish publishes a message directly to a target queue.
@@ -132,6 +132,12 @@ func (p *publisher) PublishDeadline(ctx context.Context, to, from, key *string, 
 // publish is the internal method that handles the details of publishing a message.
 // It marshals the message to JSON, sets headers for tracing, and publishes to RabbitMQ.
 func (p *publisher) publish(ctx context.Context, exchange, key string, msg any) error {
+	ch, err := p.manager.GetChannel()
+	if err != nil {
+		logrus.WithContext(ctx).WithError(err).Error("publisher get channel")
+		return err
+	}
+
 	byt, err := json.Marshal(msg)
 	if err != nil {
 		logrus.WithContext(ctx).WithError(err).Error("publisher marshal")
@@ -146,7 +152,7 @@ func (p *publisher) publish(ctx context.Context, exchange, key string, msg any) 
 		mID = uuid.New()
 	}
 
-	return p.channel.Publish(exchange, key, false, false, amqp.Publishing{
+	return ch.Publish(exchange, key, false, false, amqp.Publishing{
 		Headers:     headers,
 		Type:        fmt.Sprintf("%T", msg),
 		ContentType: JsonContentType,
