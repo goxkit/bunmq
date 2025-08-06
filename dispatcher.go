@@ -31,28 +31,35 @@ const (
 )
 
 type (
-	ConsumerDefinitionType int
-
-	// ResilientDispatcher extends the basic dispatcher with automatic reconnection capabilities
+	// Dispatcher defines an interface for managing RabbitMQ message consumption.
+	// It provides methods to register message handlers and consume messages in a blocking manner.
 	Dispatcher interface {
 		// RegisterByType associates a queue with a message type and a handler function.
 		// It ensures that messages from the specified queue are processed by the handler.
 		// Returns an error if the registration parameters are invalid or if the queue definition is not found.
 		RegisterByType(queue string, typE any, handler ConsumerHandler) error
 
-		// IsHealthy checks if the underlying connections are healthy
-		IsHealthy() bool
+		// RegisterByExchange associates a queue with a message handler based on the exchange.
+		// It ensures that all messages from the specified exchange are processed by the handler.
+		// Returns an error if the registration parameters are invalid or if the queue definition is not found.
+		RegisterByExchange(queue string, msg any, exchange string, handler ConsumerHandler) error
 
-		// GetConnectionManager returns the underlying connection manager
-		GetConnectionManager() ConnectionManager
+		// RegisterByRoutingKey associates a queue with a message handler based on the routing key.
+		// It ensures that all messages with the specified routing key are processed by the handler.
+		// Returns an error if the registration parameters are invalid or if the queue definition is not found.
+		RegisterByRoutingKey(queue string, msg any, routingKey string, handler ConsumerHandler) error
 
-		// SetReconnectCallback sets a callback for when reconnection occurs
-		SetReconnectCallback(callback func())
+		// RegisterByExchangeRoutingKey associates a queue with a message handler based on both exchange and routing key.
+		// It ensures that messages matching both the exchange and routing key are processed by the handler.
+		// Returns an error if the registration parameters are invalid or if the queue definition is not found.
+		RegisterByExchangeRoutingKey(queue string, msg any, exchange, routingKey string, handler ConsumerHandler) error
 
 		// ConsumeBlocking starts consuming messages and dispatches them to the registered handlers.
 		// This method blocks execution until the process is terminated by a signal.
 		ConsumeBlocking()
 	}
+
+	ConsumerDefinitionType int
 
 	// ConsumerHandler is a function type that defines message handler callbacks.
 	// It receives a context (for tracing), the unmarshaled message, and metadata about the delivery.
@@ -83,22 +90,23 @@ type (
 		Headers        map[string]interface{}
 	}
 
-	// resilientDispatcher implements ResilientDispatcher with connection management
+	// dispatcher is the concrete implementation of the Dispatcher interface.
+	// It manages the registration and execution of message handlers for RabbitMQ queues.
 	dispatcher struct {
-		connectionManager   ConnectionManager
+		manager             ConnectionManager
 		queueDefinitions    map[string]*QueueDefinition
 		consumersDefinition map[string]*ConsumerDefinition
 		tracer              trace.Tracer
 		signalCh            chan os.Signal
 		mu                  sync.RWMutex
-		reconnectCallback   func()
 		consuming           bool
-		consumeChannels     map[string]<-chan amqp.Delivery // Track active consumers
+		consumeChannels     map[string]<-chan amqp.Delivery
 	}
 )
 
-// NewResilientDispatcher creates a new resilient dispatcher with automatic reconnection
-func NewDispatcher(connectionManager ConnectionManager, queueDefinitions []*QueueDefinition) Dispatcher {
+// NewDispatcher creates a new dispatcher instance with the provided configuration.
+// It initializes signal handling and sets up the necessary components for message consumption.
+func NewDispatcher(manager ConnectionManager, queueDefinitions []*QueueDefinition) Dispatcher {
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -107,121 +115,146 @@ func NewDispatcher(connectionManager ConnectionManager, queueDefinitions []*Queu
 		customQueueDefs[q.name] = q
 	}
 
-	rd := &dispatcher{
-		connectionManager:   connectionManager,
+	return &dispatcher{
+		manager:             manager,
 		queueDefinitions:    customQueueDefs,
 		consumersDefinition: map[string]*ConsumerDefinition{},
 		tracer:              otel.Tracer("bunmq-dispatcher"),
 		signalCh:            signalCh,
 		consumeChannels:     make(map[string]<-chan amqp.Delivery),
 	}
-
-	// Set up reconnection callback to restart consumers
-	connectionManager.SetReconnectCallback(rd.handleReconnection)
-
-	return rd
 }
 
-// handleReconnection is called when the connection manager reconnects
-func (rd *dispatcher) handleReconnection(conn RMQConnection, ch AMQPChannel) {
-	rd.mu.Lock()
-	defer rd.mu.Unlock()
-
-	logrus.Info("bunmq dispatcher handling reconnection...")
-
-	// Clear old consume channels as they're now invalid
-	rd.consumeChannels = make(map[string]<-chan amqp.Delivery)
-
-	// If we were consuming, restart all consumers
-	if rd.consuming {
-		go rd.restartConsumers()
-	}
-
-	// Call user-defined reconnection callback if set
-	if rd.reconnectCallback != nil {
-		go rd.reconnectCallback()
-	}
-
-	logrus.Info("bunmq dispatcher reconnection handled")
-}
-
-// restartConsumers restarts all registered consumers after reconnection
-func (rd *dispatcher) restartConsumers() {
-	logrus.Info("bunmq restarting consumers after reconnection...")
-
-	for _, cd := range rd.consumersDefinition {
-		go rd.consume(cd.typ, cd.queue, cd.msgType, cd.exchange, cd.routingKey)
-	}
-
-	logrus.Info("bunmq consumers restarted successfully")
-}
-
-// RegisterByType associates a queue with a message type and a handler function
-func (rd *dispatcher) RegisterByType(queue string, typE any, handler ConsumerHandler) error {
-	return rd.registerConsumer(ConsumerDefinitionByType, queue, typE, "", "", handler)
-}
-
-// RegisterByExchange associates a queue with a message handler based on the exchange
-func (rd *dispatcher) RegisterByExchange(queue string, msg any, exchange string, handler ConsumerHandler) error {
-	return rd.registerConsumer(ConsumerDefinitionByExchange, queue, msg, exchange, "", handler)
-}
-
-// RegisterByRoutingKey associates a queue with a message handler based on the routing key
-func (rd *dispatcher) RegisterByRoutingKey(queue string, msg any, routingKey string, handler ConsumerHandler) error {
-	return rd.registerConsumer(ConsumerDefinitionByRoutingKey, queue, msg, "", routingKey, handler)
-}
-
-// RegisterByExchangeRoutingKey associates a queue with a message handler based on both exchange and routing key
-func (rd *dispatcher) RegisterByExchangeRoutingKey(queue string, msg any, exchange, routingKey string, handler ConsumerHandler) error {
-	return rd.registerConsumer(ConsumerDefinitionByExchangeRoutingKey, queue, msg, exchange, routingKey, handler)
-}
-
-// registerConsumer is a helper method to register consumers with proper validation
-func (rd *dispatcher) registerConsumer(typ ConsumerDefinitionType, queue string, msg any, exchange, routingKey string, handler ConsumerHandler) error {
+// RegisterByType associates a queue with a message type and a handler function.
+// It validates the parameters and ensures that the queue definition exists.
+// Returns an error if the registration parameters are invalid or if the queue definition is not found.
+func (d *dispatcher) RegisterByType(queue string, msg any, handler ConsumerHandler) error {
 	if msg == nil || queue == "" {
 		logrus.Error("bunmq invalid parameters to register consumer")
 		return InvalidDispatchParamsError
 	}
 
-	// Validate type-specific parameters
-	switch typ {
-	case ConsumerDefinitionByExchange:
-		if exchange == "" {
-			logrus.Error("bunmq exchange cannot be empty for this registration type")
-			return InvalidDispatchParamsError
-		}
-	case ConsumerDefinitionByRoutingKey:
-		if routingKey == "" {
-			logrus.Error("bunmq routing key cannot be empty for this registration type")
-			return InvalidDispatchParamsError
-		}
-	case ConsumerDefinitionByExchangeRoutingKey:
-		if exchange == "" || routingKey == "" {
-			logrus.Error("bunmq exchange and routing key cannot be empty for this registration type")
-			return InvalidDispatchParamsError
-		}
-	}
-
 	ref := reflect.New(reflect.TypeOf(msg))
 	msgType := fmt.Sprintf("%T", msg)
 
-	rd.mu.Lock()
-	defer rd.mu.Unlock()
-
-	_, ok := rd.consumersDefinition[msgType]
+	_, ok := d.consumersDefinition[msgType]
 	if ok {
 		logrus.Error("bunmq consumer already registered for this message")
 		return ConsumerAlreadyRegisteredForTheMessageError
 	}
 
-	def, ok := rd.queueDefinitions[queue]
+	def, ok := d.queueDefinitions[queue]
 	if !ok {
 		logrus.Error("bunmq queue definition not found for the given queue")
 		return QueueDefinitionNotFoundError
 	}
 
-	rd.consumersDefinition[msgType] = &ConsumerDefinition{
-		typ:             typ,
+	d.consumersDefinition[msgType] = &ConsumerDefinition{
+		typ:             ConsumerDefinitionByType,
+		queue:           queue,
+		msgType:         msgType,
+		reflect:         &ref,
+		queueDefinition: def,
+		handler:         handler,
+	}
+
+	return nil
+}
+
+// RegisterByExchange associates a queue with a message type and handler function based on the exchange.
+func (d *dispatcher) RegisterByExchange(queue string, msg any, exchange string, handler ConsumerHandler) error {
+	if msg == nil || queue == "" || exchange == "" {
+		logrus.Error("bunmq invalid parameters to register consumer")
+		return InvalidDispatchParamsError
+	}
+
+	ref := reflect.New(reflect.TypeOf(msg))
+	msgType := fmt.Sprintf("%T", msg)
+
+	_, ok := d.consumersDefinition[msgType]
+	if ok {
+		logrus.Error("bunmq consumer already registered for this message")
+		return ConsumerAlreadyRegisteredForTheMessageError
+	}
+
+	def, ok := d.queueDefinitions[queue]
+	if !ok {
+		logrus.Error("bunmq queue definition not found for the given queue")
+		return QueueDefinitionNotFoundError
+	}
+
+	d.consumersDefinition[msgType] = &ConsumerDefinition{
+		typ:             ConsumerDefinitionByExchange,
+		queue:           queue,
+		exchange:        exchange,
+		msgType:         msgType,
+		reflect:         &ref,
+		queueDefinition: def,
+		handler:         handler,
+	}
+
+	return nil
+}
+
+// RegisterByRoutingKey associates a queue with a message type and handler function based on the routing key.
+func (d *dispatcher) RegisterByRoutingKey(queue string, msg any, routingKey string, handler ConsumerHandler) error {
+	if msg == nil || queue == "" || routingKey == "" {
+		logrus.Error("bunmq invalid parameters to register consumer")
+		return InvalidDispatchParamsError
+	}
+
+	ref := reflect.New(reflect.TypeOf(msg))
+	msgType := fmt.Sprintf("%T", msg)
+
+	_, ok := d.consumersDefinition[msgType]
+	if ok {
+		logrus.Error("bunmq consumer already registered for this message")
+		return ConsumerAlreadyRegisteredForTheMessageError
+	}
+
+	def, ok := d.queueDefinitions[queue]
+	if !ok {
+		logrus.Error("bunmq queue definition not found for the given queue")
+		return QueueDefinitionNotFoundError
+	}
+
+	d.consumersDefinition[msgType] = &ConsumerDefinition{
+		typ:             ConsumerDefinitionByRoutingKey,
+		queue:           queue,
+		routingKey:      routingKey,
+		msgType:         msgType,
+		reflect:         &ref,
+		queueDefinition: def,
+		handler:         handler,
+	}
+
+	return nil
+}
+
+// RegisterByExchangeRoutingKey associates a queue with a message type and handler function based on both exchange and routing key.
+func (d *dispatcher) RegisterByExchangeRoutingKey(queue string, msg any, exchange, routingKey string, handler ConsumerHandler) error {
+	if msg == nil || queue == "" || exchange == "" || routingKey == "" {
+		logrus.Error("bunmq invalid parameters to register consumer")
+		return InvalidDispatchParamsError
+	}
+
+	ref := reflect.New(reflect.TypeOf(msg))
+	msgType := fmt.Sprintf("%T", msg)
+
+	_, ok := d.consumersDefinition[msgType]
+	if ok {
+		logrus.Error("bunmq consumer already registered for this message")
+		return ConsumerAlreadyRegisteredForTheMessageError
+	}
+
+	def, ok := d.queueDefinitions[queue]
+	if !ok {
+		logrus.Error("bunmq queue definition not found for the given queue")
+		return QueueDefinitionNotFoundError
+	}
+
+	d.consumersDefinition[msgType] = &ConsumerDefinition{
+		typ:             ConsumerDefinitionByExchangeRoutingKey,
 		queue:           queue,
 		exchange:        exchange,
 		routingKey:      routingKey,
@@ -234,41 +267,43 @@ func (rd *dispatcher) registerConsumer(typ ConsumerDefinitionType, queue string,
 	return nil
 }
 
-// ConsumeBlocking starts consuming messages from all registered queues
-func (rd *dispatcher) ConsumeBlocking() {
-	rd.mu.Lock()
-	rd.consuming = true
-	rd.mu.Unlock()
+// ConsumeBlocking starts consuming messages from all registered queues.
+// It creates a goroutine for each consumer and blocks until a termination signal is received.
+// This method should be called after all Register operations are complete.
+func (d *dispatcher) ConsumeBlocking() {
+	d.mu.Lock()
+	d.consuming = true
+	d.mu.Unlock()
 
 	logrus.Info("bunmq resilient dispatcher started, waiting for messages...")
 
 	// Start all consumers
-	for _, cd := range rd.consumersDefinition {
-		go rd.consume(cd.typ, cd.queue, cd.msgType, cd.exchange, cd.routingKey)
+	for _, cd := range d.consumersDefinition {
+		go d.consume(cd.typ, cd.queue, cd.msgType, cd.exchange, cd.routingKey)
 	}
 
 	// Wait for shutdown signal
-	<-rd.signalCh
+	<-d.signalCh
 	logrus.Info("bunmq signal received, closing resilient dispatcher")
 
-	rd.mu.Lock()
-	rd.consuming = false
-	rd.mu.Unlock()
+	d.mu.Lock()
+	d.consuming = false
+	d.mu.Unlock()
 }
 
 // consume starts consuming messages from a specific queue with automatic reconnection
-func (rd *dispatcher) consume(typ ConsumerDefinitionType, queue, msgType, exchange, routingKey string) {
+func (d *dispatcher) consume(typ ConsumerDefinitionType, queue, msgType, exchange, routingKey string) {
 	for {
 		// Check if we should stop consuming
-		rd.mu.RLock()
-		if !rd.consuming {
-			rd.mu.RUnlock()
+		d.mu.RLock()
+		if !d.consuming {
+			d.mu.RUnlock()
 			return
 		}
-		rd.mu.RUnlock()
+		d.mu.RUnlock()
 
 		// Get current channel from connection manager
-		ch, err := rd.connectionManager.GetChannel()
+		ch, err := d.manager.GetChannel()
 		if err != nil {
 			logrus.WithError(err).Errorf("bunmq failed to get channel for queue: %s, retrying...", queue)
 			time.Sleep(time.Second * 5)
@@ -283,39 +318,41 @@ func (rd *dispatcher) consume(typ ConsumerDefinitionType, queue, msgType, exchan
 			continue
 		}
 
-		rd.mu.Lock()
-		rd.consumeChannels[queue] = delivery
-		rd.mu.Unlock()
+		d.mu.Lock()
+		d.consumeChannels[queue] = delivery
+		d.mu.Unlock()
 
 		logrus.Infof("bunmq started consuming from queue: %s", queue)
 
 		// Process messages from this consumer
 		for received := range delivery {
 			// Process the message using the same logic as the original dispatcher
-			rd.processMessage(typ, &received)
+			d.processReceivedMessage(typ, &received)
 		}
 
 		// If we reach here, the delivery channel was closed
 		logrus.Warnf("bunmq delivery channel closed for queue: %s, will attempt to reconnect", queue)
 
-		rd.mu.Lock()
-		delete(rd.consumeChannels, queue)
-		rd.mu.Unlock()
+		d.mu.Lock()
+		delete(d.consumeChannels, queue)
+		d.mu.Unlock()
 
 		// Wait a bit before trying to reconnect
+		logrus.Warnf("bunmq waiting before reconnecting for queue: %s", queue)
 		time.Sleep(time.Second * 2)
 	}
 }
 
-// processMessage processes a single message (extracted from original dispatcher logic)
-func (rd *dispatcher) processMessage(typ ConsumerDefinitionType, received *amqp.Delivery) {
-	metadata, err := rd.extractMetadata(received)
+// consume starts consuming messages from a specific queue.
+// This internal method is responsible for the core message processing workflow.
+func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received *amqp.Delivery) {
+	metadata, err := d.extractMetadata(received)
 	if err != nil {
 		_ = received.Ack(false)
 		return
 	}
 
-	def, err := rd.extractDefByType(typ, metadata)
+	def, err := d.extractDefByType(typ, metadata)
 	if err != nil {
 		logrus.
 			WithField("messageID", metadata.MessageID).
@@ -328,7 +365,7 @@ func (rd *dispatcher) processMessage(typ ConsumerDefinitionType, received *amqp.
 		WithField("messageID", metadata.MessageID).
 		Debugf("bunmq received message: %s", metadata.Type)
 
-	ctx, span := NewConsumerSpan(rd.tracer, received.Headers, received.Type)
+	ctx, span := NewConsumerSpan(d.tracer, received.Headers, received.Type)
 
 	ptr := def.reflect.Interface()
 	if err = json.Unmarshal(received.Body, ptr); err != nil {
@@ -347,10 +384,10 @@ func (rd *dispatcher) processMessage(typ ConsumerDefinitionType, received *amqp.
 		logrus.
 			WithContext(ctx).
 			WithField("messageID", metadata.MessageID).
-			Warnf("bunmq message reprocessed too many times, sending to dead letter")
+			Warnf("bunmq message reprocessed to many times, sending to dead letter")
 		_ = received.Ack(false)
 
-		if err = rd.publishToDlq(def, received); err != nil {
+		if err = d.publishToDlq(ctx, def, received); err != nil {
 			span.RecordError(err)
 			logrus.
 				WithContext(ctx).
@@ -375,7 +412,7 @@ func (rd *dispatcher) processMessage(typ ConsumerDefinitionType, received *amqp.
 			logrus.
 				WithContext(ctx).
 				WithField("messageID", metadata.MessageID).
-				Warn("bunmq send message to process later")
+				Warn("bunmq send message to process latter")
 
 			_ = received.Nack(false, false)
 			span.End()
@@ -386,7 +423,7 @@ func (rd *dispatcher) processMessage(typ ConsumerDefinitionType, received *amqp.
 			span.RecordError(bunErr)
 			_ = received.Ack(false)
 
-			if err = rd.publishToDlq(def, received); err != nil {
+			if err = d.publishToDlq(ctx, def, received); err != nil {
 				span.RecordError(err)
 				logrus.
 					WithContext(ctx).
@@ -414,10 +451,13 @@ func (rd *dispatcher) processMessage(typ ConsumerDefinitionType, received *amqp.
 	_ = received.Ack(true)
 	span.SetStatus(codes.Ok, "success")
 	span.End()
+
 }
 
-// Helper methods (same as original dispatcher)
-func (rd *dispatcher) extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadata, error) {
+// extractMetadata extracts relevant metadata from an AMQP delivery.
+// This includes the message ID, type, and retry count.
+// Returns an error if the message has unformatted headers.
+func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadata, error) {
 	typ := delivery.Type
 	if typ == "" {
 		logrus.
@@ -444,28 +484,28 @@ func (rd *dispatcher) extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadat
 	}, nil
 }
 
-func (rd *dispatcher) extractDefByType(typ ConsumerDefinitionType, metadata *DeliveryMetadata) (*ConsumerDefinition, error) {
+func (d *dispatcher) extractDefByType(typ ConsumerDefinitionType, metadata *DeliveryMetadata) (*ConsumerDefinition, error) {
 	switch typ {
 	case ConsumerDefinitionByType:
-		def, ok := rd.consumersDefinition[metadata.Type]
+		def, ok := d.consumersDefinition[metadata.Type]
 		if !ok {
 			return nil, fmt.Errorf("bunmq no consumer found for message type: %s", metadata.Type)
 		}
 		return def, nil
 	case ConsumerDefinitionByExchange:
-		for _, def := range rd.consumersDefinition {
+		for _, def := range d.consumersDefinition {
 			if def.exchange == metadata.OriginExchange {
 				return def, nil
 			}
 		}
 	case ConsumerDefinitionByRoutingKey:
-		for _, def := range rd.consumersDefinition {
+		for _, def := range d.consumersDefinition {
 			if def.routingKey == metadata.RoutingKey {
 				return def, nil
 			}
 		}
 	case ConsumerDefinitionByExchangeRoutingKey:
-		for _, def := range rd.consumersDefinition {
+		for _, def := range d.consumersDefinition {
 			if def.exchange == metadata.OriginExchange && def.routingKey == metadata.RoutingKey {
 				return def, nil
 			}
@@ -477,9 +517,16 @@ func (rd *dispatcher) extractDefByType(typ ConsumerDefinitionType, metadata *Del
 	return nil, fmt.Errorf("bunmq no consumer definition found for type: %d", typ)
 }
 
-func (rd *dispatcher) publishToDlq(definition *ConsumerDefinition, received *amqp.Delivery) error {
-	ch, err := rd.connectionManager.GetChannel()
+// publishToDlq publishes a message to the dead-letter queue.
+// It preserves the original message properties and headers.
+func (d *dispatcher) publishToDlq(ctx context.Context, definition *ConsumerDefinition, received *amqp.Delivery) error {
+	ch, err := d.manager.GetChannel()
 	if err != nil {
+		logrus.
+			WithContext(ctx).
+			WithError(err).
+			WithField("messageID", received.MessageId).
+			Error("bunmq failure to get channel for DLQ")
 		return err
 	}
 
@@ -492,21 +539,4 @@ func (rd *dispatcher) publishToDlq(definition *ConsumerDefinition, received *amq
 		AppId:       received.AppId,
 		Body:        received.Body,
 	})
-}
-
-// IsHealthy checks if the underlying connections are healthy
-func (rd *dispatcher) IsHealthy() bool {
-	return rd.connectionManager.IsHealthy()
-}
-
-// GetConnectionManager returns the underlying connection manager
-func (rd *dispatcher) GetConnectionManager() ConnectionManager {
-	return rd.connectionManager
-}
-
-// SetReconnectCallback sets a callback for when reconnection occurs
-func (rd *dispatcher) SetReconnectCallback(callback func()) {
-	rd.mu.Lock()
-	defer rd.mu.Unlock()
-	rd.reconnectCallback = callback
 }
