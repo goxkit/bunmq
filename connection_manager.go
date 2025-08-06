@@ -230,13 +230,12 @@ func (cm *connectionManager) setupChannelNotifications(ch *amqp.Channel) {
 
 // handleConnectionFailure attempts full reconnection with exponential backoff
 func (cm *connectionManager) handleConnectionFailure() {
-	go cm.reconnectWithBackoff()
-}
-
-// reconnectWithBackoff implements exponential backoff reconnection strategy
-func (cm *connectionManager) reconnectWithBackoff() {
 	attempt := 0
 	delay := cm.reconnectDelay
+
+	cm.mu.Lock()
+	cm.closed = true
+	cm.mu.Unlock()
 
 	for {
 		select {
@@ -270,13 +269,14 @@ func (cm *connectionManager) reconnectWithBackoff() {
 			logrus.WithError(err).WithField("attempt", attempt).Error("bunmq reconnection failed")
 
 			// Calculate next delay with exponential backoff
-			delay = time.Duration(float64(delay) * 1.5)
-			if delay > cm.reconnectBackoffMax {
-				delay = cm.reconnectBackoffMax
-			}
+			delay = min(time.Duration(float64(delay)*1.5), cm.reconnectBackoffMax)
 
 			continue
 		}
+
+		cm.mu.Lock()
+		cm.closed = false
+		cm.mu.Unlock()
 
 		logrus.WithField("attempt", attempt).Info("bunmq reconnection successful")
 		return
