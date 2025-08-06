@@ -43,7 +43,7 @@ type (
 
 		// Apply declares all the exchanges, queues, and bindings defined in the topology.
 		// Returns an error if any part of the topology cannot be applied.
-		Apply() error
+		Apply() (ConnectionManager, error)
 
 		// GetConnectionManager returns the underlying connection manager
 		GetConnectionManager() ConnectionManager
@@ -60,6 +60,7 @@ type (
 
 	// resilientTopology implements ResilientTopology with connection management
 	topology struct {
+		connectionString  string
 		channel           AMQPChannel
 		queues            map[string]*QueueDefinition
 		queuesBinding     map[string]*QueueBindingDefinition
@@ -72,11 +73,13 @@ type (
 )
 
 // NewResilientTopology creates a new resilient topology with automatic reconnection
-func NewTopology(manager ConnectionManager) Topology {
+func NewTopology(connectionString string) Topology {
 	return &topology{
-		queues:            map[string]*QueueDefinition{},
-		queuesBinding:     map[string]*QueueBindingDefinition{},
-		connectionManager: manager,
+		connectionString: connectionString,
+		queues:           map[string]*QueueDefinition{},
+		queuesBinding:    map[string]*QueueBindingDefinition{},
+		exchanges:        []*ExchangeDefinition{},
+		exchangesBinding: []*ExchangeBindingDefinition{},
 	}
 }
 
@@ -151,31 +154,37 @@ func (t *topology) QueueBinding(b *QueueBindingDefinition) Topology {
 //   - Exchange declaration failure (permission issues, invalid arguments)
 //   - Queue declaration failure (permission issues, invalid arguments)
 //   - Binding failure (non-existent queues or exchanges)
-func (t *topology) Apply() error {
-	ch, err := t.connectionManager.GetChannel()
+func (t *topology) Apply() (ConnectionManager, error) {
+	manager, err := NewConnectionManager(t.connectionString)
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	ch, err := manager.GetChannel()
+	if err != nil {
+		return nil, err
 	}
 
 	t.channel = ch
+	t.connectionManager = manager
 
 	if err := t.declareExchanges(); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := t.declareQueues(); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := t.bindQueues(); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := t.bindExchanges(); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return t.connectionManager, nil
 }
 
 // declareExchanges declares all the exchanges defined in the topology.
@@ -365,11 +374,6 @@ func (t *topology) reapplyTopology(conn RMQConnection, ch AMQPChannel) {
 
 // applyTopologyToManager applies the topology using the connection manager
 func (t *topology) applyTopologyToManager() error {
-	conn, err := t.connectionManager.GetConnection()
-	if err != nil {
-		return err
-	}
-
 	ch, err := t.connectionManager.GetChannel()
 	if err != nil {
 		return err
