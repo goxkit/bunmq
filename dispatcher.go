@@ -385,6 +385,7 @@ func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received
 			WithContext(ctx).
 			WithField("messageID", metadata.MessageID).
 			Warnf("bunmq message reprocessed to many times, sending to dead letter")
+
 		_ = received.Ack(false)
 
 		if err = d.publishToDlq(ctx, def, received); err != nil {
@@ -466,20 +467,49 @@ func (d *dispatcher) extractMetadata(typ ConsumerDefinitionType, delivery *amqp.
 		return nil, ReceivedMessageWithUnformattedHeaderError
 	}
 
+	exchange := delivery.Exchange
+	routingKey := delivery.RoutingKey
+
 	var xCount int64
 	if xDeath, ok := delivery.Headers["x-death"]; ok {
-		v, _ := xDeath.([]any)
-		table, _ := v[0].(amqp.Table)
-		count, _ := table["count"].(int64)
+		tables, _ := xDeath.([]any)
+
+		lastTable, _ := tables[0].(amqp.Table)
+		count, _ := lastTable["count"].(int64)
 		xCount = count
+
+		if len(tables) == 1 {
+			deathExchange, _ := lastTable["exchange"].(string)
+			exchange = deathExchange
+
+			if val, ok := lastTable["routing-keys"]; ok {
+				if keys, ok := val.([]any); ok && len(keys) > 0 {
+					if key, ok := keys[0].(string); ok {
+						routingKey = key
+					}
+				}
+			}
+		} else {
+			firstTable, _ := tables[len(tables)-1].(amqp.Table)
+			deathExchange, _ := firstTable["exchange"].(string)
+			exchange = deathExchange
+
+			if val, ok := firstTable["routing-keys"]; ok {
+				if keys, ok := val.([]any); ok && len(keys) > 0 {
+					if key, ok := keys[0].(string); ok {
+						routingKey = key
+					}
+				}
+			}
+		}
 	}
 
 	return &DeliveryMetadata{
 		MessageID:      delivery.MessageId,
 		Type:           msgType,
 		XCount:         xCount,
-		OriginExchange: delivery.Exchange,
-		RoutingKey:     delivery.RoutingKey,
+		OriginExchange: exchange,
+		RoutingKey:     routingKey,
 		Headers:        delivery.Headers,
 	}, nil
 }
