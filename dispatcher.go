@@ -346,7 +346,7 @@ func (d *dispatcher) consume(typ ConsumerDefinitionType, queue, msgType, exchang
 // consume starts consuming messages from a specific queue.
 // This internal method is responsible for the core message processing workflow.
 func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received *amqp.Delivery) {
-	metadata, err := d.extractMetadata(received)
+	metadata, err := d.extractMetadata(typ, received)
 	if err != nil {
 		_ = received.Ack(false)
 		return
@@ -457,9 +457,9 @@ func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received
 // extractMetadata extracts relevant metadata from an AMQP delivery.
 // This includes the message ID, type, and retry count.
 // Returns an error if the message has unformatted headers.
-func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadata, error) {
-	typ := delivery.Type
-	if typ == "" {
+func (d *dispatcher) extractMetadata(typ ConsumerDefinitionType, delivery *amqp.Delivery) (*DeliveryMetadata, error) {
+	msgType := delivery.Type
+	if typ == ConsumerDefinitionByType && msgType == "" {
 		logrus.
 			WithField("messageID", delivery.MessageId).
 			Error("bunmq unformatted amqp delivery - missing type parameter")
@@ -468,7 +468,7 @@ func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadata
 
 	var xCount int64
 	if xDeath, ok := delivery.Headers["x-death"]; ok {
-		v, _ := xDeath.([]interface{})
+		v, _ := xDeath.([]any)
 		table, _ := v[0].(amqp.Table)
 		count, _ := table["count"].(int64)
 		xCount = count
@@ -476,7 +476,7 @@ func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadata
 
 	return &DeliveryMetadata{
 		MessageID:      delivery.MessageId,
-		Type:           typ,
+		Type:           msgType,
 		XCount:         xCount,
 		OriginExchange: delivery.Exchange,
 		RoutingKey:     delivery.RoutingKey,
