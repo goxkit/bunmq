@@ -52,7 +52,7 @@ type (
 		appName           string
 		channel           AMQPChannel
 		queues            map[string]*QueueDefinition
-		queuesBinding     map[string]*QueueBindingDefinition
+		queuesBinding     []*QueueBindingDefinition
 		exchanges         []*ExchangeDefinition
 		exchangesBinding  []*ExchangeBindingDefinition
 		connectionManager ConnectionManager
@@ -66,7 +66,7 @@ func NewTopology(appName, connectionString string) Topology {
 		connectionString: connectionString,
 		appName:          appName,
 		queues:           map[string]*QueueDefinition{},
-		queuesBinding:    map[string]*QueueBindingDefinition{},
+		queuesBinding:    []*QueueBindingDefinition{},
 		exchanges:        []*ExchangeDefinition{},
 		exchangesBinding: []*ExchangeBindingDefinition{},
 	}
@@ -125,7 +125,7 @@ func (t *topology) ExchangeBinding(b *ExchangeBindingDefinition) Topology {
 // QueueBinding adds an exchange-to-queue binding to the topology.
 // The binding is indexed by the queue name.
 func (t *topology) QueueBinding(b *QueueBindingDefinition) Topology {
-	t.queuesBinding[b.queue] = b
+	t.queuesBinding = append(t.queuesBinding, b)
 	return t
 }
 
