@@ -24,30 +24,31 @@ type (
 		//
 		// Parameters:
 		// - ctx: The context for managing deadlines, cancellations, and other request-scoped values.
-		// - to: The destination or topic where the message should be sent (optional).
-		// - from: The source or origin of the message (optional).
-		// - key: A routing key or identifier for the message (optional).
+		// - exchange: The destination or topic where the message should be sent.
+		// - routingKey: A routing key or identifier for the message (optional).
 		// - msg: The message payload to be sent.
 		// - options: Additional dynamic parameters for the message (optional).
 		//
 		// Returns:
 		// - An error if the message could not be sent.
-		Publish(ctx context.Context, to, from, key *string, msg any, options ...*Option) error
+		Publish(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error
 
 		// PublishDeadline sends a message to the specified destination with a deadline.
 		// This method ensures that the message is sent within the context's deadline.
 		//
 		// Parameters:
 		// - ctx: The context for managing deadlines, cancellations, and other request-scoped values.
-		// - to: The destination or topic where the message should be sent (optional).
-		// - from: The source or origin of the message (optional).
-		// - key: A routing key or identifier for the message (optional).
+		// - exchange: The destination or topic where the message should be sent.
+		// - routingKey: A routing key or identifier for the message (optional).
 		// - msg: The message payload to be sent.
 		// - options: Additional dynamic parameters for the message (optional).
 		//
 		// Returns:
 		// - An error if the message could not be sent within the deadline.
-		PublishDeadline(ctx context.Context, to, from, key *string, msg any, options ...*Option) error
+		PublishDeadline(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error
+
+		PublishQueue(ctx context.Context, queue string, msg any, options ...*Option) error
+		PublishQueueDeadline(ctx context.Context, queue string, msg any, options ...*Option) error
 	}
 
 	// publisher is the concrete implementation of the Publisher interface.
@@ -85,16 +86,10 @@ func (p *publisher) SimplePublish(ctx context.Context, target string, msg any) e
 //   - options: Additional publishing options (optional)
 //
 // Returns an error if publishing fails or if the exchange name is empty.
-func (p *publisher) Publish(ctx context.Context, to, from, key *string, msg any, options ...*Option) error {
-	if to == nil || *to == "" {
+func (p *publisher) Publish(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error {
+	if exchange == "" {
 		logrus.WithContext(ctx).Error("exchange cannot be empty")
 		return fmt.Errorf("exchange cannot be empty")
-	}
-
-	exchange := *to
-	routingKey := ""
-	if key != nil {
-		routingKey = *key
 	}
 
 	return p.publish(ctx, exchange, routingKey, msg)
@@ -111,22 +106,37 @@ func (p *publisher) Publish(ctx context.Context, to, from, key *string, msg any,
 //   - options: Additional publishing options (optional)
 //
 // Returns an error if publishing fails, times out, or if the exchange name is empty.
-func (p *publisher) PublishDeadline(ctx context.Context, to, from, key *string, msg any, options ...*Option) error {
-	if to == nil || *to == "" {
+func (p *publisher) PublishDeadline(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error {
+	if exchange == "" {
 		logrus.WithContext(ctx).Error("exchange cannot be empty")
 		return fmt.Errorf("exchange cannot be empty")
-	}
-
-	exchange := *to
-	routingKey := ""
-	if key != nil {
-		routingKey = *key
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	return p.publish(ctx, exchange, routingKey, msg)
+}
+
+func (p *publisher) PublishQueue(ctx context.Context, queue string, msg any, options ...*Option) error {
+	if queue == "" {
+		logrus.WithContext(ctx).Error("queue cannot be empty")
+		return fmt.Errorf("queue cannot be empty")
+	}
+
+	return p.publish(ctx, "", queue, msg)
+}
+
+func (p *publisher) PublishQueueDeadline(ctx context.Context, queue string, msg any, options ...*Option) error {
+	if queue == "" {
+		logrus.WithContext(ctx).Error("queue cannot be empty")
+		return fmt.Errorf("queue cannot be empty")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	return p.publish(ctx, "", queue, msg)
 }
 
 // publish is the internal method that handles the details of publishing a message.
