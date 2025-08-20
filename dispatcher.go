@@ -134,8 +134,12 @@ func (d *dispatcher) RegisterByType(queue string, msg any, handler ConsumerHandl
 		return InvalidDispatchParamsError
 	}
 
-	ref := reflect.New(reflect.TypeOf(msg))
-	msgType := fmt.Sprintf("%T", msg)
+	t := reflect.TypeOf(msg)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	ref := reflect.New(t)
+	msgType := t.String()
 
 	_, ok := d.consumersDefinition[msgType]
 	if ok {
@@ -168,8 +172,12 @@ func (d *dispatcher) RegisterByExchange(queue string, msg any, exchange string, 
 		return InvalidDispatchParamsError
 	}
 
-	ref := reflect.New(reflect.TypeOf(msg))
-	msgType := fmt.Sprintf("%T", msg)
+	t := reflect.TypeOf(msg)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	ref := reflect.New(t)
+	msgType := t.String()
 
 	_, ok := d.consumersDefinition[msgType]
 	if ok {
@@ -203,8 +211,12 @@ func (d *dispatcher) RegisterByRoutingKey(queue string, msg any, routingKey stri
 		return InvalidDispatchParamsError
 	}
 
-	ref := reflect.New(reflect.TypeOf(msg))
-	msgType := fmt.Sprintf("%T", msg)
+	t := reflect.TypeOf(msg)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	ref := reflect.New(t)
+	msgType := t.String()
 
 	_, ok := d.consumersDefinition[msgType]
 	if ok {
@@ -238,8 +250,12 @@ func (d *dispatcher) RegisterByExchangeRoutingKey(queue string, msg any, exchang
 		return InvalidDispatchParamsError
 	}
 
-	ref := reflect.New(reflect.TypeOf(msg))
-	msgType := fmt.Sprintf("%T", msg)
+	t := reflect.TypeOf(msg)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	ref := reflect.New(t)
+	msgType := t.String()
 
 	_, ok := d.consumersDefinition[msgType]
 	if ok {

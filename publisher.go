@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -162,9 +163,15 @@ func (p *publisher) publish(ctx context.Context, exchange, key string, msg any) 
 		mID = uuid.New()
 	}
 
+	t := reflect.TypeOf(msg)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	msgType := t.String()
+
 	return ch.Publish(exchange, key, false, false, amqp.Publishing{
 		Headers:     headers,
-		Type:        fmt.Sprintf("%T", msg),
+		Type:        msgType,
 		ContentType: JsonContentType,
 		MessageId:   mID.String(),
 		AppId:       p.appName,
