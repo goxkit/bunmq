@@ -149,10 +149,94 @@ func (p *publisher) publish(ctx context.Context, exchange, key string, msg any) 
 		return err
 	}
 
-	byt, err := json.Marshal(msg)
-	if err != nil {
-		logrus.WithContext(ctx).WithError(err).Error("publisher marshal")
-		return err
+	var byt []byte
+
+	// Check if msg is already []byte to avoid unnecessary marshaling
+	if b, ok := msg.([]byte); ok {
+		byt = b
+	} else if s, ok := msg.(string); ok {
+		// If it's a string, convert it to bytes
+		byt = []byte(s)
+	} else {
+		// Marshal other types to JSON but guard against highly recursive/cyclic structures
+		// that can cause stack overflow in json.Marshal by doing a lightweight analysis first.
+		var maxDepth = 64
+		visited := make(map[uintptr]bool)
+
+		var tooComplex func(v reflect.Value, depth int) bool
+		tooComplex = func(v reflect.Value, depth int) bool {
+			if depth > maxDepth {
+				return true
+			}
+			if !v.IsValid() {
+				return false
+			}
+			switch v.Kind() {
+			case reflect.Interface:
+				if v.IsNil() {
+					return false
+				}
+				return tooComplex(v.Elem(), depth+1)
+			case reflect.Ptr:
+				if v.IsNil() {
+					return false
+				}
+				// record pointer address to detect cycles
+				ptr := v.Pointer()
+				if ptr != 0 {
+					if visited[ptr] {
+						return true
+					}
+					visited[ptr] = true
+				}
+				return tooComplex(v.Elem(), depth+1)
+			case reflect.Struct:
+				for i := 0; i < v.NumField(); i++ {
+					if tooComplex(v.Field(i), depth+1) {
+						return true
+					}
+				}
+				return false
+			case reflect.Slice, reflect.Array:
+				// iterate but stop early if too deep/complex
+				for i := 0; i < v.Len(); i++ {
+					if tooComplex(v.Index(i), depth+1) {
+						return true
+					}
+				}
+				return false
+			case reflect.Map:
+				if v.IsNil() {
+					return false
+				}
+				for _, k := range v.MapKeys() {
+					if tooComplex(k, depth+1) {
+						return true
+					}
+					if tooComplex(v.MapIndex(k), depth+1) {
+						return true
+					}
+				}
+				return false
+			default:
+				// basic types (int, string, bool, etc.) are safe
+				return false
+			}
+		}
+
+		v := reflect.ValueOf(msg)
+		if tooComplex(v, 0) {
+			// Fallback to a non-recursive representation to avoid stack overflow.
+			// This prevents fatal errors when encountering cyclic or extremely deep structures.
+			byt = []byte(fmt.Sprintf("%v", msg))
+		} else {
+			var err error
+			byt, err = json.Marshal(msg)
+			if err != nil {
+				logrus.WithContext(ctx).WithError(err).Error("publisher marshal")
+				return err
+			}
+		}
 	}
 
 	headers := amqp.Table{}
