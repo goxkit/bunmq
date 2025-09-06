@@ -41,7 +41,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer manager.Close()
+	defer func() {
+		_ = manager.Close()
+	}()
 
 	dispatcher := bunmq.NewDispatcher(manager, []*bunmq.QueueDefinition{queueDef})
 
