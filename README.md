@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/goxkit/bunmq.svg)](https://pkg.go.dev/github.com/goxkit/bunmq)
 [![Go Report Card](https://goreportcard.com/badge/github.com/goxkit/bunmq)](https://goreportcard.com/report/github.com/goxkit/bunmq)
-[![ci](https://github.com/goxkit/bunmq/actions/workflows/ci.yml/badge.svg)](https://github.com/goxkit/bunmq/actions/workflows/ci.yml)
+[![pipeline](https://github.com/goxkit/bunmq/actions/workflows/pipeline.yml/badge.svg)](https://github.com/goxkit/bunmq/actions/workflows/pipeline.yml)
 [![Code Scanning](https://img.shields.io/badge/code%20scanning-passing-brightgreen)](https://github.com/goxkit/bunmq/security/code-scanning)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
