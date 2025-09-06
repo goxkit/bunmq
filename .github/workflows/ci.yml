@@ -6,7 +6,7 @@ on:
     branches: [ main ]
 
 jobs:
-  security:
+  ci:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -40,7 +40,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.4.2
+          version: v2.4.0
 
       - name: Run gosec
         run: |
