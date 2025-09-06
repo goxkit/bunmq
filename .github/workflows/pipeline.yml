@@ -1,4 +1,4 @@
-name: ci
+name: pipeline
 
 on:
   pull_request:
@@ -34,19 +34,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - name: Install gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
-
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.4.0
 
-      - name: Run gosec
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: gosec
         run: |
           gosec -conf .gosec.json ./...
 
-      - name: Generate reports (SARIF + HTML)
+      - name: gosec reports (SARIF + HTML)
         if: always()
         run: |
           mkdir -p reports
