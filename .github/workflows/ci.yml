@@ -1,0 +1,39 @@
+name: golangci-lint
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # allow annotations on PRs
+      security-events: write # only needed if you upload SARIF (see step below)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+      # Optional: also publish results to GitHub Code Scanning (nice dashboard)
+      # - name: Run golangci-lint to SARIF
+      #   run: |
+      #     golangci-lint run --out-format sarif > golangci-lint.sarif
+      # - name: Upload SARIF
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   with:
+      #     sarif_file: golangci-lint.sarif
