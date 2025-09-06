@@ -1,4 +1,4 @@
-name: golangci-lint
+name: ci
 
 on:
   pull_request:
@@ -6,12 +6,13 @@ on:
     branches: [ main ]
 
 jobs:
-  lint:
+  security:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write   # allow annotations on PRs
-      security-events: write # only needed if you upload SARIF (see step below)
+      pull-requests: write
+      security-events: write   # needed to upload SARIF to "Code scanning alerts"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,17 +24,40 @@ jobs:
           check-latest: true
           cache: true
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+      - name: Cache Go build
+        uses: actions/cache@v4
         with:
-          version: latest
-          args: --timeout=5m
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
-      # Optional: also publish results to GitHub Code Scanning (nice dashboard)
-      # - name: Run golangci-lint to SARIF
-      #   run: |
-      #     golangci-lint run --out-format sarif > golangci-lint.sarif
-      # - name: Upload SARIF
-      #   uses: github/codeql-action/upload-sarif@v3
-      #   with:
-      #     sarif_file: golangci-lint.sarif
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec
+        run: |
+          gosec -conf .gosec.json ./...
+
+      - name: Generate reports (SARIF + HTML)
+        if: always()
+        run: |
+          mkdir -p reports
+          gosec -conf .gosec.json -fmt sarif -out reports/gosec.sarif ./... || true
+          gosec -conf .gosec.json -fmt html  -out reports/gosec.html  ./... || true
+
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/gosec.sarif
+
+      - name: Upload HTML report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gosec-html
+          path: reports/gosec.html
+          if-no-files-found: ignore

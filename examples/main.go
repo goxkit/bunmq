@@ -45,14 +45,17 @@ func main() {
 
 	dispatcher := bunmq.NewDispatcher(manager, []*bunmq.QueueDefinition{queueDef})
 
-	dispatcher.RegisterByType(
+	if err := dispatcher.RegisterByType(
 		queueDef.Name(),
 		&MyCustomMessage{},
 		func(ctx context.Context, msg any, metadata *bunmq.DeliveryMetadata) error {
 			received := msg.(*MyCustomMessage)
 			logrus.Info("example dispatcher received message:", received)
 			return nil
-		})
+		},
+	); err != nil {
+		logrus.WithError(err).Fatal("failed to register consumer")
+	}
 
 	dispatcher.ConsumeBlocking()
 }

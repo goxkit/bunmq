@@ -1,0 +1,12 @@
+{
+  "severity": "medium",
+  "confidence": "medium",
+  "exclude-dirs": [
+    "**/vendor/**",
+    "**/mock/**",
+    "**/mocks/**",
+    "**/testdata/**"
+  ],
+  "exclude": [
+  ]
+}
