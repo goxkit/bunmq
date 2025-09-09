@@ -69,14 +69,13 @@ type (
 	// ConsumerDefinition represents the configuration for a consumer.
 	// It holds information about the queue, message type, and handler function.
 	ConsumerDefinition struct {
-		typ             ConsumerDefinitionType
-		queue           string
-		exchange        string
-		routingKey      string
-		msgType         string
-		reflect         *reflect.Value
-		queueDefinition *QueueDefinition
-		handler         ConsumerHandler
+		typ        ConsumerDefinitionType
+		queue      string
+		exchange   string
+		routingKey string
+		msgType    string
+		reflect    *reflect.Value
+		handler    ConsumerHandler
 	}
 
 	// deliveryMetadata contains metadata extracted from an AMQP delivery.
@@ -95,7 +94,7 @@ type (
 	dispatcher struct {
 		manager             ConnectionManager
 		queueDefinitions    map[string]*QueueDefinition
-		consumersDefinition map[string]*ConsumerDefinition
+		consumersDefinition map[string][]*ConsumerDefinition
 		tracer              trace.Tracer
 		signalCh            chan os.Signal
 		mu                  sync.RWMutex
@@ -118,7 +117,7 @@ func NewDispatcher(manager ConnectionManager, queueDefinitions []*QueueDefinitio
 	return &dispatcher{
 		manager:             manager,
 		queueDefinitions:    customQueueDefs,
-		consumersDefinition: map[string]*ConsumerDefinition{},
+		consumersDefinition: map[string][]*ConsumerDefinition{},
 		tracer:              otel.Tracer("bunmq-dispatcher"),
 		signalCh:            signalCh,
 		consumeChannels:     make(map[string]<-chan amqp.Delivery),
@@ -141,26 +140,27 @@ func (d *dispatcher) RegisterByType(queue string, msg any, handler ConsumerHandl
 	ref := reflect.New(t)
 	msgType := t.String()
 
-	_, ok := d.consumersDefinition[msgType]
-	if ok {
-		logrus.Error("bunmq consumer already registered for this message")
-		return ConsumerAlreadyRegisteredForTheMessageError
+	consumers := d.consumersDefinition[queue]
+	for _, c := range consumers {
+		if c.msgType == msgType {
+			logrus.Error("bunmq consumer already registered for this message")
+			return ConsumerAlreadyRegisteredForTheMessageError
+		}
 	}
 
-	def, ok := d.queueDefinitions[queue]
+	_, ok := d.queueDefinitions[queue]
 	if !ok {
 		logrus.Error("bunmq queue definition not found for the given queue")
 		return QueueDefinitionNotFoundError
 	}
 
-	d.consumersDefinition[msgType] = &ConsumerDefinition{
-		typ:             ConsumerDefinitionByType,
-		queue:           queue,
-		msgType:         msgType,
-		reflect:         &ref,
-		queueDefinition: def,
-		handler:         handler,
-	}
+	d.consumersDefinition[queue] = append(consumers, &ConsumerDefinition{
+		typ:     ConsumerDefinitionByType,
+		queue:   queue,
+		msgType: msgType,
+		reflect: &ref,
+		handler: handler,
+	})
 
 	return nil
 }
@@ -179,27 +179,28 @@ func (d *dispatcher) RegisterByExchange(queue string, msg any, exchange string, 
 	ref := reflect.New(t)
 	msgType := t.String()
 
-	_, ok := d.consumersDefinition[msgType]
-	if ok {
-		logrus.Error("bunmq consumer already registered for this message")
-		return ConsumerAlreadyRegisteredForTheMessageError
+	consumers := d.consumersDefinition[queue]
+	for _, c := range consumers {
+		if c.msgType == msgType {
+			logrus.Error("bunmq consumer already registered for this message")
+			return ConsumerAlreadyRegisteredForTheMessageError
+		}
 	}
 
-	def, ok := d.queueDefinitions[queue]
+	_, ok := d.queueDefinitions[queue]
 	if !ok {
 		logrus.Error("bunmq queue definition not found for the given queue")
 		return QueueDefinitionNotFoundError
 	}
 
-	d.consumersDefinition[msgType] = &ConsumerDefinition{
-		typ:             ConsumerDefinitionByExchange,
-		queue:           queue,
-		exchange:        exchange,
-		msgType:         msgType,
-		reflect:         &ref,
-		queueDefinition: def,
-		handler:         handler,
-	}
+	d.consumersDefinition[queue] = append(consumers, &ConsumerDefinition{
+		typ:      ConsumerDefinitionByExchange,
+		queue:    queue,
+		exchange: exchange,
+		msgType:  msgType,
+		reflect:  &ref,
+		handler:  handler,
+	})
 
 	return nil
 }
@@ -218,27 +219,28 @@ func (d *dispatcher) RegisterByRoutingKey(queue string, msg any, routingKey stri
 	ref := reflect.New(t)
 	msgType := t.String()
 
-	_, ok := d.consumersDefinition[msgType]
-	if ok {
-		logrus.Error("bunmq consumer already registered for this message")
-		return ConsumerAlreadyRegisteredForTheMessageError
+	consumers := d.consumersDefinition[queue]
+	for _, c := range consumers {
+		if c.msgType == msgType {
+			logrus.Error("bunmq consumer already registered for this message")
+			return ConsumerAlreadyRegisteredForTheMessageError
+		}
 	}
 
-	def, ok := d.queueDefinitions[queue]
+	_, ok := d.queueDefinitions[queue]
 	if !ok {
 		logrus.Error("bunmq queue definition not found for the given queue")
 		return QueueDefinitionNotFoundError
 	}
 
-	d.consumersDefinition[msgType] = &ConsumerDefinition{
-		typ:             ConsumerDefinitionByRoutingKey,
-		queue:           queue,
-		routingKey:      routingKey,
-		msgType:         msgType,
-		reflect:         &ref,
-		queueDefinition: def,
-		handler:         handler,
-	}
+	d.consumersDefinition[queue] = append(consumers, &ConsumerDefinition{
+		typ:        ConsumerDefinitionByRoutingKey,
+		queue:      queue,
+		routingKey: routingKey,
+		msgType:    msgType,
+		reflect:    &ref,
+		handler:    handler,
+	})
 
 	return nil
 }
@@ -257,28 +259,29 @@ func (d *dispatcher) RegisterByExchangeRoutingKey(queue string, msg any, exchang
 	ref := reflect.New(t)
 	msgType := t.String()
 
-	_, ok := d.consumersDefinition[msgType]
-	if ok {
-		logrus.Error("bunmq consumer already registered for this message")
-		return ConsumerAlreadyRegisteredForTheMessageError
+	consumers := d.consumersDefinition[queue]
+	for _, c := range consumers {
+		if c.msgType == msgType {
+			logrus.Error("bunmq consumer already registered for this message")
+			return ConsumerAlreadyRegisteredForTheMessageError
+		}
 	}
 
-	def, ok := d.queueDefinitions[queue]
+	_, ok := d.queueDefinitions[queue]
 	if !ok {
 		logrus.Error("bunmq queue definition not found for the given queue")
 		return QueueDefinitionNotFoundError
 	}
 
-	d.consumersDefinition[msgType] = &ConsumerDefinition{
-		typ:             ConsumerDefinitionByExchangeRoutingKey,
-		queue:           queue,
-		exchange:        exchange,
-		routingKey:      routingKey,
-		msgType:         msgType,
-		reflect:         &ref,
-		queueDefinition: def,
-		handler:         handler,
-	}
+	d.consumersDefinition[queue] = append(consumers, &ConsumerDefinition{
+		typ:        ConsumerDefinitionByExchangeRoutingKey,
+		queue:      queue,
+		exchange:   exchange,
+		routingKey: routingKey,
+		msgType:    msgType,
+		reflect:    &ref,
+		handler:    handler,
+	})
 
 	return nil
 }
@@ -294,8 +297,8 @@ func (d *dispatcher) ConsumeBlocking() {
 	logrus.Info("bunmq resilient dispatcher started, waiting for messages...")
 
 	// Start all consumers
-	for _, cd := range d.consumersDefinition {
-		go d.consume(cd.typ, cd.queue, cd.msgType, cd.exchange, cd.routingKey)
+	for _, queueDef := range d.queueDefinitions {
+		go d.consume(queueDef)
 	}
 
 	// Wait for shutdown signal
@@ -308,7 +311,7 @@ func (d *dispatcher) ConsumeBlocking() {
 }
 
 // consume starts consuming messages from a specific queue with automatic reconnection
-func (d *dispatcher) consume(typ ConsumerDefinitionType, queue, msgType, exchange, routingKey string) {
+func (d *dispatcher) consume(queueDef *QueueDefinition) {
 	for {
 		// Check if we should stop consuming
 		d.mu.RLock()
@@ -321,54 +324,52 @@ func (d *dispatcher) consume(typ ConsumerDefinitionType, queue, msgType, exchang
 		// Get current channel from connection manager
 		ch, err := d.manager.GetChannel()
 		if err != nil {
-			logrus.WithError(err).Errorf("bunmq failed to get channel for queue: %s, retrying...", queue)
+			logrus.WithError(err).Errorf("bunmq failed to get channel for queue: %s, retrying...", queueDef.name)
 			time.Sleep(time.Second * 5)
 			continue
 		}
 
 		// Start consuming from the queue
-		delivery, err := ch.Consume(queue, "", false, false, false, false, nil)
+		delivery, err := ch.Consume(queueDef.name, "", false, false, false, false, nil)
 		if err != nil {
-			logrus.WithError(err).Errorf("bunmq failure to declare consumer for queue: %s, retrying...", queue)
+			logrus.WithError(err).Errorf("bunmq failure to declare consumer for queue: %s, retrying...", queueDef.name)
 			time.Sleep(time.Second * 5)
 			continue
 		}
 
 		d.mu.Lock()
-		d.consumeChannels[queue] = delivery
+		d.consumeChannels[queueDef.name] = delivery
 		d.mu.Unlock()
 
-		logrus.Infof("bunmq started consuming from queue: %s", queue)
+		logrus.Infof("bunmq started consuming from queue: %s", queueDef.name)
 
 		// Process messages from this consumer
 		for received := range delivery {
-			// Process the message using the same logic as the original dispatcher
-			d.processReceivedMessage(typ, &received)
+			d.processReceivedMessage(queueDef, &received)
 		}
 
 		// If we reach here, the delivery channel was closed
-		logrus.Warnf("bunmq delivery channel closed for queue: %s, will attempt to reconnect", queue)
+		logrus.Warnf("bunmq delivery channel closed for queue: %s, will attempt to reconnect", queueDef.name)
 
 		d.mu.Lock()
-		delete(d.consumeChannels, queue)
+		delete(d.consumeChannels, queueDef.name)
 		d.mu.Unlock()
 
 		// Wait a bit before trying to reconnect
-		logrus.Warnf("bunmq waiting before reconnecting for queue: %s", queue)
+		logrus.Warnf("bunmq waiting before reconnecting for queue: %s", queueDef.name)
 		time.Sleep(time.Second * 2)
 	}
 }
 
-// consume starts consuming messages from a specific queue.
-// This internal method is responsible for the core message processing workflow.
-func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received *amqp.Delivery) {
-	metadata, err := d.extractMetadata(typ, received)
+// processReceivedMessage processes a received message from a specific queue.
+func (d *dispatcher) processReceivedMessage(queueDef *QueueDefinition, received *amqp.Delivery) {
+	metadata, err := d.extractMetadata(received)
 	if err != nil {
 		_ = received.Ack(false)
 		return
 	}
 
-	def, err := d.extractDefByType(typ, metadata)
+	def, err := d.evaluateDefByReceivedMsg(queueDef, metadata)
 	if err != nil {
 		logrus.
 			WithField("messageID", metadata.MessageID).
@@ -396,7 +397,7 @@ func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received
 		return
 	}
 
-	if def.queueDefinition.withRetry && metadata.XCount >= def.queueDefinition.retries {
+	if queueDef.withRetry && metadata.XCount >= queueDef.retries {
 		logrus.
 			WithContext(ctx).
 			WithField("messageID", metadata.MessageID).
@@ -404,7 +405,7 @@ func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received
 
 		_ = received.Ack(false)
 
-		if err = d.publishToDlq(ctx, def, received); err != nil {
+		if err = d.publishToDlq(ctx, queueDef, received); err != nil {
 			span.RecordError(err)
 			logrus.
 				WithContext(ctx).
@@ -425,7 +426,7 @@ func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received
 			WithField("messageID", metadata.MessageID).
 			Error("bunmq error to process message")
 
-		if def.queueDefinition.withRetry && errors.Is(bunErr, RetryableError) {
+		if queueDef.withRetry && errors.Is(bunErr, RetryableError) {
 			logrus.
 				WithContext(ctx).
 				WithField("messageID", metadata.MessageID).
@@ -436,11 +437,11 @@ func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received
 			return
 		}
 
-		if def.queueDefinition.withDLQ {
+		if queueDef.withDLQ {
 			span.RecordError(bunErr)
 			_ = received.Ack(false)
 
-			if err = d.publishToDlq(ctx, def, received); err != nil {
+			if err = d.publishToDlq(ctx, queueDef, received); err != nil {
 				span.RecordError(err)
 				logrus.
 					WithContext(ctx).
@@ -468,21 +469,13 @@ func (d *dispatcher) processReceivedMessage(typ ConsumerDefinitionType, received
 	_ = received.Ack(true)
 	span.SetStatus(codes.Ok, "success")
 	span.End()
-
 }
 
 // extractMetadata extracts relevant metadata from an AMQP delivery.
 // This includes the message ID, type, and retry count.
 // Returns an error if the message has unformatted headers.
-func (d *dispatcher) extractMetadata(typ ConsumerDefinitionType, delivery *amqp.Delivery) (*DeliveryMetadata, error) {
+func (d *dispatcher) extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadata, error) {
 	msgType := delivery.Type
-	if typ == ConsumerDefinitionByType && msgType == "" {
-		logrus.
-			WithField("messageID", delivery.MessageId).
-			Error("bunmq unformatted amqp delivery - missing type parameter")
-		return nil, ReceivedMessageWithUnformattedHeaderError
-	}
-
 	exchange := delivery.Exchange
 	routingKey := delivery.RoutingKey
 
@@ -530,42 +523,45 @@ func (d *dispatcher) extractMetadata(typ ConsumerDefinitionType, delivery *amqp.
 	}, nil
 }
 
-func (d *dispatcher) extractDefByType(typ ConsumerDefinitionType, metadata *DeliveryMetadata) (*ConsumerDefinition, error) {
-	switch typ {
-	case ConsumerDefinitionByType:
-		def, ok := d.consumersDefinition[metadata.Type]
-		if !ok {
-			return nil, fmt.Errorf("bunmq no consumer found for message type: %s", metadata.Type)
-		}
-		return def, nil
-	case ConsumerDefinitionByExchange:
-		for _, def := range d.consumersDefinition {
-			if def.exchange == metadata.OriginExchange {
+func (d *dispatcher) evaluateDefByReceivedMsg(queueDef *QueueDefinition, metadata *DeliveryMetadata) (*ConsumerDefinition, error) {
+	definitions, ok := d.consumersDefinition[queueDef.name]
+	if !ok {
+		return nil, fmt.Errorf("bunmq no consumer definitions found for queue: %s", queueDef.name)
+	}
+
+	if len(definitions) == 0 {
+		return nil, fmt.Errorf("bunmq no consumer definitions found for queue: %s", queueDef.name)
+	}
+
+	for _, def := range definitions {
+		switch def.typ {
+		case ConsumerDefinitionByType:
+			if def.msgType == metadata.Type {
 				return def, nil
 			}
-		}
-	case ConsumerDefinitionByRoutingKey:
-		for _, def := range d.consumersDefinition {
-			if def.routingKey == metadata.RoutingKey {
-				return def, nil
-			}
-		}
-	case ConsumerDefinitionByExchangeRoutingKey:
-		for _, def := range d.consumersDefinition {
+		case ConsumerDefinitionByExchangeRoutingKey:
 			if def.exchange == metadata.OriginExchange && def.routingKey == metadata.RoutingKey {
 				return def, nil
 			}
+		case ConsumerDefinitionByExchange:
+			if def.exchange == metadata.OriginExchange {
+				return def, nil
+			}
+		case ConsumerDefinitionByRoutingKey:
+			if def.routingKey == metadata.RoutingKey {
+				return def, nil
+			}
+		default:
+			return nil, fmt.Errorf("bunmq unknown consumer definition type: %d", def.typ)
 		}
-	default:
-		return nil, fmt.Errorf("bunmq unknown consumer definition type: %d", typ)
 	}
 
-	return nil, fmt.Errorf("bunmq no consumer definition found for type: %d", typ)
+	return nil, fmt.Errorf("bunmq no consumer definition found for queue: %v", queueDef.name)
 }
 
 // publishToDlq publishes a message to the dead-letter queue.
 // It preserves the original message properties and headers.
-func (d *dispatcher) publishToDlq(ctx context.Context, definition *ConsumerDefinition, received *amqp.Delivery) error {
+func (d *dispatcher) publishToDlq(ctx context.Context, queueDef *QueueDefinition, received *amqp.Delivery) error {
 	ch, err := d.manager.GetChannel()
 	if err != nil {
 		logrus.
@@ -576,7 +572,7 @@ func (d *dispatcher) publishToDlq(ctx context.Context, definition *ConsumerDefin
 		return err
 	}
 
-	return ch.Publish("", definition.queueDefinition.dqlName, false, false, amqp.Publishing{
+	return ch.Publish("", queueDef.dqlName, false, false, amqp.Publishing{
 		Headers:     received.Headers,
 		Type:        received.Type,
 		ContentType: received.ContentType,
