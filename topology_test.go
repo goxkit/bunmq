@@ -39,7 +39,10 @@ func TestNewTopology(t *testing.T) {
 			}
 
 			// Verify it implements the Topology interface
-			var _ Topology = topology
+			top := topology
+			if top == nil {
+				t.Error("NewTopology() does not implement Topology interface")
+			}
 
 			// Test that basic operations work
 			queues := topology.GetQueuesDefinition()
@@ -61,7 +64,7 @@ func TestNewTopology(t *testing.T) {
 
 func TestTopology_Queue(t *testing.T) {
 	topology := NewTopology("test-app", "amqp://test")
-	
+
 	queue1 := NewQueue("orders")
 	queue2 := NewQueue("payments")
 
@@ -89,7 +92,7 @@ func TestTopology_Queue(t *testing.T) {
 
 func TestTopology_Queues(t *testing.T) {
 	topology := NewTopology("test-app", "amqp://test")
-	
+
 	queue1 := NewQueue("orders")
 	queue2 := NewQueue("payments")
 	queue3 := NewQueue("notifications")
@@ -130,7 +133,7 @@ func TestTopology_Queues(t *testing.T) {
 
 func TestTopology_GetQueueDefinition(t *testing.T) {
 	topology := NewTopology("test-app", "amqp://test")
-	
+
 	queue1 := NewQueue("orders")
 	topology.Queue(queue1)
 
@@ -155,7 +158,7 @@ func TestTopology_GetQueueDefinition(t *testing.T) {
 
 func TestTopology_Exchange(t *testing.T) {
 	topology := NewTopology("test-app", "amqp://test")
-	
+
 	exchange1 := NewDirectExchange("orders")
 	exchange2 := NewFanoutExchange("notifications")
 
@@ -175,7 +178,7 @@ func TestTopology_Exchange(t *testing.T) {
 
 func TestTopology_Exchanges(t *testing.T) {
 	topology := NewTopology("test-app", "amqp://test")
-	
+
 	exchange1 := NewDirectExchange("orders")
 	exchange2 := NewFanoutExchange("notifications")
 	exchange3 := NewDirectExchange("payments")
@@ -191,13 +194,13 @@ func TestTopology_Exchanges(t *testing.T) {
 	// Test adding empty slice - should not cause issues
 	topology.Exchanges([]*ExchangeDefinition{})
 
-	// Test adding nil slice - should not cause issues  
+	// Test adding nil slice - should not cause issues
 	topology.Exchanges(nil)
 }
 
 func TestTopology_QueueBinding(t *testing.T) {
 	topology := NewTopology("test-app", "amqp://test")
-	
+
 	binding1 := NewQueueBinding().Queue("orders").Exchange("order-exchange").RoutingKey("order.created")
 	binding2 := NewQueueBinding().Queue("payments").Exchange("payment-exchange").RoutingKey("payment.processed")
 
@@ -217,7 +220,7 @@ func TestTopology_QueueBinding(t *testing.T) {
 
 func TestTopology_ExchangeBinding(t *testing.T) {
 	topology := NewTopology("test-app", "amqp://test")
-	
+
 	binding1 := NewExchangeBiding().Source("orders").Destination("notifications").RoutingKey("order.created")
 	binding2 := NewExchangeBiding().Source("payments").Destination("audit").RoutingKey("payment.processed")
 
@@ -276,7 +279,7 @@ func TestTopology_FluentChaining(t *testing.T) {
 
 func TestTopology_Interface(t *testing.T) {
 	// Test that topology implements Topology interface
-	var topo Topology = NewTopology("test-app", "amqp://test")
+	topo := NewTopology("test-app", "amqp://test")
 
 	// Test all interface methods exist
 	queue := NewQueue("test")

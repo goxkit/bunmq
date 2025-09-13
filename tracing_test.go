@@ -46,7 +46,10 @@ func TestAMQPPropagator(t *testing.T) {
 	}
 
 	// Test that it implements propagation.TextMapPropagator interface
-	var _ propagation.TextMapPropagator = AMQPPropagator
+	propagator := AMQPPropagator
+	if propagator == nil {
+		t.Error("AMQPPropagator does not implement propagation.TextMapPropagator")
+	}
 
 	// Test Fields method exists
 	fields := AMQPPropagator.Fields()
@@ -201,11 +204,11 @@ func TestAMQPHeader_Keys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := tt.header.Keys()
-			
+
 			// Sort both slices to ensure comparison works
 			sort.Strings(result)
 			sort.Strings(tt.expected)
-			
+
 			if !reflect.DeepEqual(result, tt.expected) {
 				t.Errorf("AMQPHeader.Keys() = %v, want %v", result, tt.expected)
 			}
@@ -224,7 +227,7 @@ func TestAMQPHeader_TextMapCarrier(t *testing.T) {
 
 	// Test Set method
 	header.Set("test-key", "test-value")
-	
+
 	// Test Get method
 	value := header.Get("test-key")
 	if value != "test-value" {
@@ -292,7 +295,10 @@ func TestNewConsumerSpan(t *testing.T) {
 			// Verify span name
 			// Note: We can't easily access span name in the test without additional OpenTelemetry test setup
 			// but we can verify the span is valid by checking if it implements the interface
-			var _ trace.Span = span
+			s := span
+			if s == nil {
+				t.Error("Returned span does not implement trace.Span interface")
+			}
 
 			// End the span to clean up
 			span.End()
@@ -328,35 +334,35 @@ func TestAMQPHeader_CaseInsensitivity(t *testing.T) {
 func TestAMQPHeader_Integration(t *testing.T) {
 	// Test basic injection and extraction without requiring a real tracer
 	// since setting up a full OpenTelemetry test environment is complex
-	
+
 	// Test manual injection of trace context
 	header := make(AMQPHeader)
 	header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
 	header.Set("tracestate", "vendor=value")
-	
+
 	// Verify trace context was set
 	keys := header.Keys()
 	if len(keys) < 2 {
 		t.Errorf("Expected at least 2 headers, got %d", len(keys))
 	}
-	
+
 	// Verify values can be retrieved
 	traceparent := header.Get("traceparent")
 	if traceparent != "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" {
 		t.Errorf("Traceparent = %v, want 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01", traceparent)
 	}
-	
+
 	tracestate := header.Get("tracestate")
 	if tracestate != "vendor=value" {
 		t.Errorf("Tracestate = %v, want vendor=value", tracestate)
 	}
-	
+
 	// Test extraction with propagator (this will work even without a real span)
 	extractedCtx := AMQPPropagator.Extract(context.Background(), header)
 	if extractedCtx == nil {
 		t.Error("Failed to extract context from AMQP header")
 	}
-	
+
 	// The extraction should succeed but won't have a valid span context
 	// since we're manually setting headers rather than using a real tracer
 }

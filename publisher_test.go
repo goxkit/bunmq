@@ -13,14 +13,14 @@ import (
 
 // MockConnectionManager is a mock implementation of ConnectionManager interface for testing
 type MockConnectionManager struct {
-	connection       RMQConnection
-	channel          AMQPChannel
-	connectionString string
-	closed           bool
-	healthy          bool
-	getConnectionErr error
-	getChannelErr    error
-	closeErr         error
+	connection        RMQConnection
+	channel           AMQPChannel
+	connectionString  string
+	closed            bool
+	healthy           bool
+	getConnectionErr  error
+	getChannelErr     error
+	closeErr          error
 	reconnectCallback func(RMQConnection, AMQPChannel)
 }
 
@@ -114,7 +114,10 @@ func TestNewPublisher(t *testing.T) {
 	}
 
 	// Verify it implements the Publisher interface
-	var _ Publisher = publisher
+	pub := publisher
+	if pub == nil {
+		t.Error("Publisher is nil")
+	}
 }
 
 func TestPublisher_Publish_SimpleCase(t *testing.T) {
@@ -194,7 +197,7 @@ func TestPublisher_Publish(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := NewMockConnectionManager()
 			channel := NewMockAMQPChannel()
-			
+
 			if tt.channelErr != nil {
 				manager.SetGetChannelError(tt.channelErr)
 			} else {
@@ -263,7 +266,7 @@ func TestPublisher_PublishDeadline(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := NewMockConnectionManager()
 			channel := NewMockAMQPChannel()
-			
+
 			if tt.channelErr != nil {
 				manager.SetGetChannelError(tt.channelErr)
 			} else {
@@ -328,7 +331,7 @@ func TestPublisher_PublishQueue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := NewMockConnectionManager()
 			channel := NewMockAMQPChannel()
-			
+
 			if tt.channelErr != nil {
 				manager.SetGetChannelError(tt.channelErr)
 			} else {
@@ -385,7 +388,7 @@ func TestPublisher_PublishQueueDeadline(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := NewMockConnectionManager()
 			channel := NewMockAMQPChannel()
-			
+
 			if tt.channelErr != nil {
 				manager.SetGetChannelError(tt.channelErr)
 			} else {
@@ -494,7 +497,7 @@ func TestPublisher_ContextCancellation(t *testing.T) {
 func TestPublisher_Interface(t *testing.T) {
 	// Test that publisher implements Publisher interface
 	manager := NewMockConnectionManager()
-	var pub Publisher = NewPublisher("test-app", manager)
+	pub := NewPublisher("test-app", manager)
 
 	// Test all interface methods exist
 	ctx := context.Background()
@@ -520,7 +523,7 @@ func TestPublisher_TimeoutBehavior(t *testing.T) {
 	manager.SetChannel(channel)
 
 	publisher := NewPublisher("test-app", manager)
-	
+
 	start := time.Now()
 	err := publisher.PublishDeadline(context.Background(), "test-exchange", "test.key", TestMessage{ID: "123", Content: "test"})
 	duration := time.Since(start)
@@ -529,7 +532,7 @@ func TestPublisher_TimeoutBehavior(t *testing.T) {
 	if duration > time.Second {
 		t.Errorf("PublishDeadline took too long: %v", duration)
 	}
-	
+
 	if err != nil {
 		t.Errorf("PublishDeadline returned unexpected error: %v", err)
 	}
