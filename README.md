@@ -531,7 +531,7 @@ manager, err := bunmq.NewConnectionManager("my-app", connectionString, config)
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Want to contribute? Awesome! Check out the [contributing guidelines](CONTRIBUTING.md) to get involved.
 
 ## License
 
