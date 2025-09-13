@@ -5,17 +5,17 @@ Thanks for your interest in contributing to bunmq — we appreciate it!
 This document explains how you can help improve this project and how we evaluate and accept changes.
 
 Table of contents
-- Code of Conduct
-- Getting started
-- Finding something to work on
-- Development environment
-- Code style and conventions
-- Tests and CI
-- Security and static checks
-- Pull request process
-- Commit message guidelines
-- Release & backports
-- Contact / maintainers
+- [Code of Conduct](#code-of-conduct)
+- [Getting started](#getting-started)
+- [Finding something to work on](#finding-something-to-work-on)
+- [Development environment](#development-environment)
+- [Code style and conventions](#code-style-and-conventions)
+- [Tests and CI](#tests-and-ci)
+- [Security and static checks](#security-and-static-checks)
+- [Pull request process](#pull-request-process)
+- [Commit message guidelines](#commit-message-guidelines)
+- [Release & backports](#release--backports)
+- [Contact / maintainers](#contact--maintainers)
 
 Code of Conduct
 ----------------
