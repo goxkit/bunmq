@@ -22,3 +22,4 @@ rad.json
 TestResults.xml
 # Added by goreleaser init:
 dist/
+examples/example
