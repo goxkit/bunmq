@@ -23,7 +23,7 @@ We expect contributors to follow a friendly and respectful Code of Conduct. Repo
 
 Getting started
 ---------------
-1. Fork the repository and create a branch from the default branch (typically `main` or `develop`).
+1. Fork the repository and create a branch from the default branch.
 2. Keep changes small and focused. Multiple small PRs are easier and faster to review than a single large one.
 3. If the change is non-trivial, open an issue first to discuss the design and approach.
 
@@ -41,7 +41,6 @@ Prerequisites:
 
 Common dev commands:
 
-- Build: `make build` or `go build ./...`
 - Run unit tests: `make test` or `go test ./...`
 - Run linters: `make sec` (gosec) and, if configured, `make lint` (golangci-lint).
 
