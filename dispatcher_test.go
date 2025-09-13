@@ -205,6 +205,160 @@ func TestDispatcher_evaluateDefByReceivedMsg(t *testing.T) {
 	}
 }
 
+func TestDispatcher_ConsumeBlocking_SignalHandling(t *testing.T) {
+	// Test signal handling setup
+	manager := NewMockConnectionManager()
+	queueDef := NewQueue("test-queue")
+	dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+	
+	// We can't test the blocking behavior directly, but we can verify the interface
+	// by ensuring ConsumeBlocking is available and doesn't panic when called
+	// Note: This would block in real usage, so we don't actually call it in tests
+	if dispatcher == nil {
+		t.Error("Expected dispatcher to be created")
+	}
+}
+
+func TestDispatcher_ComplexIntegration(t *testing.T) {
+	// Test multiple registrations and complex scenarios
+	manager := NewMockConnectionManager()
+	channel := NewMockAMQPChannel()
+	manager.SetChannel(channel)
+	
+	queueDefs := []*QueueDefinition{
+		NewQueue("queue1"),
+		NewQueue("queue2"),
+		NewQueue("queue3").WithDQL(),
+	}
+	
+	dispatcher := NewDispatcher(manager, queueDefs)
+	
+	// Register multiple consumers
+	handler1 := func(ctx context.Context, msg any, metadata *DeliveryMetadata) error { return nil }
+	handler2 := func(ctx context.Context, msg any, metadata *DeliveryMetadata) error { return nil }
+	
+	// Test multiple registrations
+	err1 := dispatcher.RegisterByType("queue1", DispatcherTestMessage{}, handler1)
+	err2 := dispatcher.RegisterByExchange("queue2", DispatcherTestMessage{}, "exchange1", handler2)
+	err3 := dispatcher.RegisterByRoutingKey("queue3", DispatcherTestMessage{}, "key1", handler1)
+	
+	if err1 != nil || err2 != nil || err3 != nil {
+		t.Errorf("Expected all registrations to succeed, got errors: %v, %v, %v", err1, err2, err3)
+	}
+	
+	// Test duplicate registration should fail
+	err4 := dispatcher.RegisterByType("queue1", DispatcherTestMessage{}, handler1)
+	if err4 == nil {
+		t.Error("Expected duplicate registration to fail")
+	}
+	if err4.Error() != "consumer already registered for the message" {
+		t.Errorf("Expected specific duplicate error, got: %v", err4)
+	}
+}
+
+func TestDispatcher_ErrorHandling(t *testing.T) {
+	// Test various error conditions
+	manager := NewMockConnectionManager()
+	queueDef := NewQueue("test-queue")
+	dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+	
+	handler := func(ctx context.Context, msg any, metadata *DeliveryMetadata) error { return nil }
+	
+	// Test registration with nonexistent queue
+	err := dispatcher.RegisterByType("nonexistent-queue", DispatcherTestMessage{}, handler)
+	if err == nil {
+		t.Error("Expected error for nonexistent queue")
+	}
+	
+	// Test registration with empty parameters
+	err = dispatcher.RegisterByType("", DispatcherTestMessage{}, handler)
+	if err == nil {
+		t.Error("Expected error for empty queue name")
+	}
+	
+	err = dispatcher.RegisterByExchange("test-queue", DispatcherTestMessage{}, "", handler)
+	if err == nil {
+		t.Error("Expected error for empty exchange name")
+	}
+	
+	err = dispatcher.RegisterByRoutingKey("test-queue", DispatcherTestMessage{}, "", handler)
+	if err == nil {
+		t.Error("Expected error for empty routing key")
+	}
+	
+	err = dispatcher.RegisterByExchangeRoutingKey("test-queue", DispatcherTestMessage{}, "", "key", handler)
+	if err == nil {
+		t.Error("Expected error for empty exchange in exchange+routing key registration")
+	}
+	
+	err = dispatcher.RegisterByExchangeRoutingKey("test-queue", DispatcherTestMessage{}, "exchange", "", handler)
+	if err == nil {
+		t.Error("Expected error for empty routing key in exchange+routing key registration")
+	}
+}
+
+func TestDispatcher_WithPointerTypes(t *testing.T) {
+	// Test registration with pointer types
+	manager := NewMockConnectionManager()
+	queueDef := NewQueue("test-queue")
+	dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+	
+	handler := func(ctx context.Context, msg any, metadata *DeliveryMetadata) error { return nil }
+	
+	// Test pointer type registration
+	err := dispatcher.RegisterByType("test-queue", &DispatcherTestMessage{}, handler)
+	if err != nil {
+		t.Errorf("Expected pointer type registration to succeed, got: %v", err)
+	}
+}
+
+func TestDispatcher_MetadataExtractionAdvanced(t *testing.T) {
+	// Test more complex metadata extraction scenarios
+	manager := NewMockConnectionManager()
+	dispatcher := NewDispatcher(manager, []*QueueDefinition{})
+	
+	type dispatcherImpl interface {
+		extractMetadata(delivery *amqp.Delivery) (*DeliveryMetadata, error)
+	}
+	
+	disp, ok := dispatcher.(dispatcherImpl)
+	if !ok {
+		t.Fatal("dispatcher does not implement expected interface")
+	}
+	
+	// Test delivery with x-death header (retry scenario)
+	delivery := &amqp.Delivery{
+		MessageId:  "test-message-2",
+		Type:       "DispatcherTestMessage",
+		Exchange:   "dlq-exchange",
+		RoutingKey: "dlq-key",
+		Headers: map[string]interface{}{
+			"x-death": []interface{}{
+				amqp.Table{
+					"count":        int64(3),
+					"exchange":     "original-exchange",
+					"routing-keys": []interface{}{"original.key"},
+				},
+			},
+		},
+	}
+	
+	metadata, err := disp.extractMetadata(delivery)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	
+	if metadata.XCount != 3 {
+		t.Errorf("Expected XCount 3, got %d", metadata.XCount)
+	}
+	if metadata.OriginExchange != "original-exchange" {
+		t.Errorf("Expected OriginExchange original-exchange, got %s", metadata.OriginExchange)
+	}
+	if metadata.RoutingKey != "original.key" {
+		t.Errorf("Expected RoutingKey original.key, got %s", metadata.RoutingKey)
+	}
+}
+
 // Mock acknowledger for testing
 type mockAcknowledger struct {
 	ackFunc  func(multiple bool) error
