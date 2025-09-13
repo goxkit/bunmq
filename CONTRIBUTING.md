@@ -1,4 +1,4 @@
-Contributing to bunmq
+# Contributing to bunmq
 
 Thanks for your interest in contributing to bunmq — we appreciate it!
 
