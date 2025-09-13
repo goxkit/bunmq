@@ -46,6 +46,9 @@ jobs:
         run: |
           gosec -conf .gosec.json ./...
 
+      - name: Run tests
+        run: go test -v ./...
+
       - name: gosec reports (SARIF + HTML)
         if: always()
         run: |

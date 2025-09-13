@@ -22,4 +22,7 @@ rad.json
 TestResults.xml
 # Added by goreleaser init:
 dist/
+
+coverage.html
+coverage.out
 examples/example
