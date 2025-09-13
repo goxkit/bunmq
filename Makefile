@@ -18,7 +18,7 @@ test-coverage-threshold:
 	@echo "Checking test coverage threshold (90%)..."
 	@go test -coverprofile=coverage.out ./... > /dev/null
 	@COVERAGE=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
-	if [ $$(echo "$$COVERAGE < 90" | bc -l) -eq 1 ]; then \
+	if ! go run -e 'package main; import ("os"; "strconv"); func main() {v, _ := strconv.ParseFloat(os.Args[1], 64); if v < 90 {os.Exit(1)}}' "$$COVERAGE"; then \
 		echo "❌ Test coverage is $$COVERAGE%, which is below the 90% threshold"; \
 		exit 1; \
 	else \
