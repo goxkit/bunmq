@@ -80,6 +80,8 @@ jobs:
           check-latest: true
 
       - name: Install goreleaser
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl -sL https://git.io/goreleaser | bash
 
