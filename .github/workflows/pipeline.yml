@@ -72,21 +72,42 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          check-latest: true
+          fetch-depth: 0
 
-      - name: Install goreleaser
+      - name: Create new minor tag only
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
         run: |
-          go install github.com/goreleaser/goreleaser/v2@latest
+          set -euo pipefail
 
-      - name: Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          goreleaser release --rm-dist
+          # fetch tags
+          git fetch --tags
+
+          # find latest semantic tag like vMAJOR.MINOR.PATCH
+          latest=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n1 || true)
+          if [ -z "$latest" ]; then
+            latest="v0.0.0"
+          fi
+
+          # strip leading "v" and split
+          ver=${latest#v}
+          IFS='.' read -r major minor patch <<< "$ver"
+
+          # increment minor, reset patch
+          minor=$((minor + 1))
+          patch=0
+
+          new_tag="v${major}.${minor}.${patch}"
+          echo "Latest tag: $latest"
+          echo "Creating new tag: $new_tag"
+
+          # configure git and create annotated tag
+          git config user.name "${GITHUB_ACTOR}"
+          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+          git tag -a "$new_tag" -m "chore: bump minor version to $new_tag"
+
+          # push the new tag using the GITHUB_TOKEN
+          git push "https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${REPO}" "$new_tag"

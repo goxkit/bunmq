@@ -3,6 +3,8 @@
 install:
 	@go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0
+	@go install github.com/goreleaser/goreleaser/v2@latest
+	@curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
 
 lint:
 	@command -v golangci-lint >/dev/null || (echo "Install golangci-lint: https://golangci-lint.run/usage/install/"; exit 1)
