@@ -9,6 +9,22 @@ install:
 test:
 	go test -v ./...
 
+test-coverage:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	go tool cover -func=coverage.out
+
+test-coverage-threshold:
+	@echo "Checking test coverage threshold (90%)..."
+	@go test -coverprofile=coverage.out ./... > /dev/null
+	@COVERAGE=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
+	if [ $$(echo "$$COVERAGE < 90" | bc -l) -eq 1 ]; then \
+		echo "❌ Test coverage is $$COVERAGE%, which is below the 90% threshold"; \
+		exit 1; \
+	else \
+		echo "✅ Test coverage is $$COVERAGE%, which meets the 90% threshold"; \
+	fi
+
 lint:
 	@command -v golangci-lint >/dev/null || (echo "Install golangci-lint: https://golangci-lint.run/usage/install/"; exit 1)
 	golangci-lint run --timeout=5mo
