@@ -83,7 +83,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -sL https://git.io/goreleaser | bash
+          go install github.com/goreleaser/goreleaser/v2@latest
 
       - name: Release
         env:
