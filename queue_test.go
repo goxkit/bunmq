@@ -196,9 +196,9 @@ func TestQueueDefinition_WithTTL(t *testing.T) {
 
 func TestQueueDefinition_WithDQL(t *testing.T) {
 	tests := []struct {
-		name          string
-		queueName     string
-		expectedDLQ   string
+		name        string
+		queueName   string
+		expectedDLQ string
 	}{
 		{
 			name:        "basic DLQ",
@@ -416,7 +416,7 @@ func TestQueueDefinition_FluentChaining(t *testing.T) {
 		Delete(false).
 		Exclusive(false).
 		WithMaxLength(10000).
-		WithTTL(5 * time.Minute).
+		WithTTL(5*time.Minute).
 		WithDQL().
 		WithDLQMaxLength(1000).
 		WithRetry(30*time.Second, 3)
@@ -447,5 +447,24 @@ func TestQueueDefinition_FluentChaining(t *testing.T) {
 	}
 	if !q.withRetry || q.retryTTL != 30*time.Second || q.retries != 3 {
 		t.Error("Chained queue should have retry enabled with 30s TTL and 3 retries")
+	}
+}
+
+func TestQueueDefinition_Quorum(t *testing.T) {
+	// Default should be classic
+	q := NewQueue("test-quorum")
+	if got := q.queueType(); got != "classic" {
+		t.Errorf("default queueType() = %v, want classic", got)
+	}
+
+	// After calling Quorum(), queueType should be quorum
+	q.Quorum()
+	if got := q.queueType(); got != "quorum" {
+		t.Errorf("after Quorum(), queueType() = %v, want quorum", got)
+	}
+
+	// Ensure chaining returns the same instance
+	if q2 := q.Quorum(); q2 != q {
+		t.Error("Quorum() should return the same QueueDefinition instance for chaining")
 	}
 }
