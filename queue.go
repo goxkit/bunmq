@@ -111,16 +111,26 @@ func (q *QueueDefinition) WithRetry(ttl time.Duration, retries int64) *QueueDefi
 	return q
 }
 
+// Quorum marks the queue as a quorum queue. It sets the internal quorum flag
+// on the receiver so the queue will use quorum-style semantics (replicated
+// storage and stronger availability guarantees) instead of a classic queue.
+// This method modifies the receiver in place and returns the same
+// *QueueDefinition to allow fluent chaining of configuration calls.
 func (q *QueueDefinition) Quorum() *QueueDefinition {
 	q.quorum = true
 	return q
 }
 
+// queueType returns the canonical string identifier for the queue represented by
+// the receiver. If the QueueDefinition is configured as a quorum queue
+// (q.quorum == true), it returns "quorum"; otherwise it returns "classic".
+// This helper is intended for use in configuration generation, serialization,
+// logging, and other places where a human- or API-facing name for the queue
+// kind is required. It does not modify the receiver.
 func (q *QueueDefinition) queueType() string {
 	if q.quorum {
 		return "quorum"
 	}
-
 	return "classic"
 }
 

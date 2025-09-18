@@ -296,3 +296,50 @@ func TestTopology_Interface(t *testing.T) {
 	_ = topo.GetQueuesDefinition()
 	_, _ = topo.GetQueueDefinition("test")
 }
+
+func TestTopology_DeclareQueues_QueueType(t *testing.T) {
+	top := NewTopology("test-app", "amqp://test")
+
+	// classic queue (default)
+	classic := NewQueue("classic-queue")
+	top.Queue(classic)
+
+	// quorum queue
+	quorum := NewQueue("quorum-queue").Quorum()
+	top.Queue(quorum)
+
+	// get concrete topology
+	tp, ok := top.(*topology)
+	if !ok {
+		t.Fatal("failed to cast Topology to *topology")
+	}
+
+	mockCh := NewMockAMQPChannel()
+	tp.channel = mockCh
+
+	if err := tp.declareQueues(); err != nil {
+		t.Fatalf("declareQueues() returned error: %v", err)
+	}
+
+	// check classic
+	argsClassic, ok := mockCh.declaredArgs["classic-queue"]
+	if !ok {
+		t.Fatalf("classic queue was not declared")
+	}
+	if xt, ok := argsClassic["x-queue-type"]; !ok {
+		t.Fatalf("x-queue-type missing for classic queue args: %#v", argsClassic)
+	} else if xt != "classic" {
+		t.Fatalf("classic queue x-queue-type = %v, want classic", xt)
+	}
+
+	// check quorum
+	argsQuorum, ok := mockCh.declaredArgs["quorum-queue"]
+	if !ok {
+		t.Fatalf("quorum queue was not declared")
+	}
+	if xt, ok := argsQuorum["x-queue-type"]; !ok {
+		t.Fatalf("x-queue-type missing for quorum queue args: %#v", argsQuorum)
+	} else if xt != "quorum" {
+		t.Fatalf("quorum queue x-queue-type = %v, want quorum", xt)
+	}
+}

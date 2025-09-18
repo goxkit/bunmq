@@ -25,13 +25,15 @@ type MockAMQPChannel struct {
 	closeError           error
 	notifyCloseChannels  []chan *amqp.Error
 	notifyCancelChannels []chan string
+	// declaredArgs captures the args passed to QueueDeclare for tests
+	declaredArgs map[string]amqp.Table
 }
 
 func NewMockAMQPChannel() *MockAMQPChannel {
 	// Create a default delivery channel for testing
 	deliveryChannel := make(chan amqp.Delivery)
 	close(deliveryChannel) // Close it immediately to simulate an empty channel
-	
+
 	return &MockAMQPChannel{
 		closed:               false,
 		notifyCloseChannels:  make([]chan *amqp.Error, 0),
@@ -53,6 +55,16 @@ func (m *MockAMQPChannel) QueueDeclare(name string, durable, autoDelete, exclusi
 	if m.queueDeclareError != nil {
 		return amqp.Queue{}, m.queueDeclareError
 	}
+	if m.declaredArgs == nil {
+		m.declaredArgs = map[string]amqp.Table{}
+	}
+	// copy args map to avoid mutation issues from caller
+	copied := amqp.Table{}
+	for k, v := range args {
+		copied[k] = v
+	}
+	m.declaredArgs[name] = copied
+
 	queue := m.queueDeclareQueue
 	queue.Name = name
 	return queue, nil
@@ -408,7 +420,7 @@ func TestNewConnection(t *testing.T) {
 				if tt.dialError != nil {
 					return nil, tt.dialError
 				}
-				
+
 				mockConn := NewMockRMQConnection()
 				if tt.channelError != nil {
 					mockConn.SetChannelError(tt.channelError)
@@ -449,7 +461,7 @@ func TestDial_Variable(t *testing.T) {
 	// Test that dial has the correct signature
 	// We can't call it directly in tests without a real RabbitMQ instance,
 	// but we can verify it exists and is callable
-	
+
 	// Store original dial function
 	originalDial := dial
 	defer func() { dial = originalDial }()
