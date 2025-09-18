@@ -14,6 +14,7 @@ import (
 // exclusivity, TTL, DLQ (Dead Letter Queue), and retry mechanisms.
 type QueueDefinition struct {
 	name             string
+	quorum           bool
 	durable          bool
 	delete           bool
 	exclusive        bool
@@ -108,6 +109,19 @@ func (q *QueueDefinition) WithRetry(ttl time.Duration, retries int64) *QueueDefi
 	q.retryTTL = ttl
 	q.retries = retries
 	return q
+}
+
+func (q *QueueDefinition) Quorum() *QueueDefinition {
+	q.quorum = true
+	return q
+}
+
+func (q *QueueDefinition) queueType() string {
+	if q.quorum {
+		return "quorum"
+	}
+
+	return "classic"
 }
 
 // Name returns the name of the queue.
