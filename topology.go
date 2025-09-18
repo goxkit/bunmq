@@ -214,6 +214,7 @@ func (t *topology) declareQueues() error {
 				"x-dead-letter-routing-key": queue.name,
 				"x-message-ttl":             queue.retryTTL.Milliseconds(),
 				"x-retry-count":             queue.retries,
+				"x-queue-type":              queue.queueType(),
 			}); err != nil {
 				return err
 			}
@@ -226,6 +227,7 @@ func (t *topology) declareQueues() error {
 			amqpDlqDeclarationOpts = amqp.Table{
 				"x-dead-letter-exchange":    "",
 				"x-dead-letter-routing-key": queue.RetryName(),
+				"x-queue-type":              queue.queueType(),
 			}
 		}
 
@@ -233,6 +235,7 @@ func (t *topology) declareQueues() error {
 			amqpDlqDeclarationOpts = amqp.Table{
 				"x-dead-letter-exchange":    "",
 				"x-dead-letter-routing-key": queue.DLQName(),
+				"x-queue-type":              queue.queueType(),
 			}
 		}
 

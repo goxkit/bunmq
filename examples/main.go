@@ -19,7 +19,8 @@ func main() {
 		WithMaxLength(100_000).
 		WithRetry(time.Second*10, 3).
 		WithDQL().
-		WithDLQMaxLength(10_000)
+		WithDLQMaxLength(10_000).
+		Quorum()
 
 	topology := bunmq.
 		NewTopology("my-app", "amqp://guest:guest@localhost:5672/").
