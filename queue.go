@@ -14,6 +14,7 @@ import (
 // exclusivity, TTL, DLQ (Dead Letter Queue), and retry mechanisms.
 type QueueDefinition struct {
 	name             string
+	quorum           bool
 	durable          bool
 	delete           bool
 	exclusive        bool
@@ -36,7 +37,7 @@ type QueueDefinition struct {
 //
 // Example usage:
 //
-//	 queueDef := bunmq.NewQueue("my-queue").Durable(true).WithRetry(time.Second*10, 3).WithDQL()
+//	 queueDef := bunmq.NewQueue("my-queue").Durable(true).WithRetry(time.Second*10, 3).WithDLQ()
 //
 //	This creates a durable queue with retry and dead letter queue enabled.
 //
@@ -84,10 +85,10 @@ func (q *QueueDefinition) WithTTL(ttl time.Duration) *QueueDefinition {
 	return q
 }
 
-// WithDQL enables a Dead Letter Queue (DLQ) for this queue.
+// WithDLQ enables a Dead Letter Queue (DLQ) for this queue.
 // Messages that are rejected, expired, or exceed max length will be routed to the DLQ.
 // The DLQ name is automatically generated as "<queue-name>-dlq".
-func (q *QueueDefinition) WithDQL() *QueueDefinition {
+func (q *QueueDefinition) WithDLQ() *QueueDefinition {
 	q.withDLQ = true
 	q.dqlName = fmt.Sprintf("%s-dlq", q.name)
 	return q
@@ -108,6 +109,29 @@ func (q *QueueDefinition) WithRetry(ttl time.Duration, retries int64) *QueueDefi
 	q.retryTTL = ttl
 	q.retries = retries
 	return q
+}
+
+// Quorum marks the queue as a quorum queue. It sets the internal quorum flag
+// on the receiver so the queue will use quorum-style semantics (replicated
+// storage and stronger availability guarantees) instead of a classic queue.
+// This method modifies the receiver in place and returns the same
+// *QueueDefinition to allow fluent chaining of configuration calls.
+func (q *QueueDefinition) Quorum() *QueueDefinition {
+	q.quorum = true
+	return q
+}
+
+// queueType returns the canonical string identifier for the queue represented by
+// the receiver. If the QueueDefinition is configured as a quorum queue
+// (q.quorum == true), it returns "quorum"; otherwise it returns "classic".
+// This helper is intended for use in configuration generation, serialization,
+// logging, and other places where a human- or API-facing name for the queue
+// kind is required. It does not modify the receiver.
+func (q *QueueDefinition) queueType() string {
+	if q.quorum {
+		return "quorum"
+	}
+	return "classic"
 }
 
 // Name returns the name of the queue.

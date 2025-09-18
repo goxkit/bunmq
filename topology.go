@@ -207,13 +207,13 @@ func (t *topology) declareQueues() error {
 
 		if queue.withRetry {
 			logrus.Infof("bunmq declaring retry queue: %s ...", queue.RetryName())
-
 			//queue.RetryName(), true, false, false, false, amqpDlqDeclarationOpts
 			if _, err := t.channel.QueueDeclare(queue.RetryName(), queue.durable, queue.delete, queue.exclusive, false, amqp.Table{
 				"x-dead-letter-exchange":    "",
 				"x-dead-letter-routing-key": queue.name,
 				"x-message-ttl":             queue.retryTTL.Milliseconds(),
 				"x-retry-count":             queue.retries,
+				"x-queue-type":              queue.queueType(),
 			}); err != nil {
 				return err
 			}
@@ -221,19 +221,17 @@ func (t *topology) declareQueues() error {
 			logrus.Info("bunmq retry queue declared")
 		}
 
-		var amqpDlqDeclarationOpts amqp.Table
+		amqpDlqDeclarationOpts := amqp.Table{
+			"x-queue-type": queue.queueType(),
+		}
 		if queue.withDLQ && queue.withRetry {
-			amqpDlqDeclarationOpts = amqp.Table{
-				"x-dead-letter-exchange":    "",
-				"x-dead-letter-routing-key": queue.RetryName(),
-			}
+			amqpDlqDeclarationOpts["x-dead-letter-exchange"] = ""
+			amqpDlqDeclarationOpts["x-dead-letter-routing-key"] = queue.RetryName()
 		}
 
 		if queue.withDLQ && !queue.withRetry {
-			amqpDlqDeclarationOpts = amqp.Table{
-				"x-dead-letter-exchange":    "",
-				"x-dead-letter-routing-key": queue.DLQName(),
-			}
+			amqpDlqDeclarationOpts["x-dead-letter-exchange"] = ""
+			amqpDlqDeclarationOpts["x-dead-letter-routing-key"] = queue.DLQName()
 		}
 
 		if queue.withDLQMaxLength {

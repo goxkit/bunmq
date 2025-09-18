@@ -226,7 +226,7 @@ func TestDispatcher_ComplexIntegration(t *testing.T) {
 	queueDefs := []*QueueDefinition{
 		NewQueue("queue1"),
 		NewQueue("queue2"),
-		NewQueue("queue3").WithDQL(),
+		NewQueue("queue3").WithDLQ(),
 	}
 
 	dispatcher := NewDispatcher(manager, queueDefs)

@@ -6,6 +6,7 @@ package bunmq
 
 import (
 	"testing"
+	"time"
 )
 
 func TestNewTopology(t *testing.T) {
@@ -295,4 +296,99 @@ func TestTopology_Interface(t *testing.T) {
 	_ = topo.ExchangeBinding(exchangeBinding)
 	_ = topo.GetQueuesDefinition()
 	_, _ = topo.GetQueueDefinition("test")
+}
+
+func TestTopology_DeclareQueues_QueueType(t *testing.T) {
+	top := NewTopology("test-app", "amqp://test")
+
+	// classic queue (default)
+	classic := NewQueue("classic-queue")
+	top.Queue(classic)
+
+	// quorum queue
+	quorum := NewQueue("quorum-queue").Quorum()
+	top.Queue(quorum)
+
+	// get concrete topology
+	tp, ok := top.(*topology)
+	if !ok {
+		t.Fatal("failed to cast Topology to *topology")
+	}
+
+	mockCh := NewMockAMQPChannel()
+	tp.channel = mockCh
+
+	if err := tp.declareQueues(); err != nil {
+		t.Fatalf("declareQueues() returned error: %v", err)
+	}
+
+	// check classic
+	argsClassic, ok := mockCh.declaredArgs["classic-queue"]
+	if !ok {
+		t.Fatalf("classic queue was not declared")
+	}
+	if xt, ok := argsClassic["x-queue-type"]; !ok {
+		t.Fatalf("x-queue-type missing for classic queue args: %#v", argsClassic)
+	} else if xt != "classic" {
+		t.Fatalf("classic queue x-queue-type = %v, want classic", xt)
+	}
+
+	// check quorum
+	argsQuorum, ok := mockCh.declaredArgs["quorum-queue"]
+	if !ok {
+		t.Fatalf("quorum queue was not declared")
+	}
+	if xt, ok := argsQuorum["x-queue-type"]; !ok {
+		t.Fatalf("x-queue-type missing for quorum queue args: %#v", argsQuorum)
+	} else if xt != "quorum" {
+		t.Fatalf("quorum queue x-queue-type = %v, want quorum", xt)
+	}
+}
+
+func TestTopology_DeclareQueues_DLQRoutingKey(t *testing.T) {
+	top := NewTopology("test-app", "amqp://test")
+
+	// queue with DLQ and Retry
+	qWithRetry := NewQueue("with-retry").WithDLQ().WithRetry(30*time.Second, 3)
+	top.Queue(qWithRetry)
+
+	// queue with DLQ but no Retry
+	qWithoutRetry := NewQueue("no-retry").WithDLQ()
+	top.Queue(qWithoutRetry)
+
+	tp, ok := top.(*topology)
+	if !ok {
+		t.Fatal("failed to cast Topology to *topology")
+	}
+
+	mockCh := NewMockAMQPChannel()
+	tp.channel = mockCh
+
+	if err := tp.declareQueues(); err != nil {
+		t.Fatalf("declareQueues() returned error: %v", err)
+	}
+
+	// DLQ for qWithRetry should have x-dead-letter-routing-key = qWithRetry.RetryName()
+	dlqName := qWithRetry.DLQName()
+	args, ok := mockCh.declaredArgs[dlqName]
+	if !ok {
+		t.Fatalf("DLQ %s was not declared", dlqName)
+	}
+	if rk, ok := args["x-dead-letter-routing-key"]; !ok {
+		t.Fatalf("x-dead-letter-routing-key missing for %s args: %#v", dlqName, args)
+	} else if rk != qWithRetry.RetryName() {
+		t.Fatalf("%s x-dead-letter-routing-key = %v, want %s", dlqName, rk, qWithRetry.RetryName())
+	}
+
+	// DLQ for qWithoutRetry should have x-dead-letter-routing-key = qWithoutRetry.DLQName()
+	dlqName2 := qWithoutRetry.DLQName()
+	args2, ok := mockCh.declaredArgs[dlqName2]
+	if !ok {
+		t.Fatalf("DLQ %s was not declared", dlqName2)
+	}
+	if rk2, ok := args2["x-dead-letter-routing-key"]; !ok {
+		t.Fatalf("x-dead-letter-routing-key missing for %s args: %#v", dlqName2, args2)
+	} else if rk2 != qWithoutRetry.DLQName() {
+		t.Fatalf("%s x-dead-letter-routing-key = %v, want %s", dlqName2, rk2, qWithoutRetry.DLQName())
+	}
 }
