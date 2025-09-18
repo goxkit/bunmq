@@ -18,7 +18,7 @@ func main() {
 		Durable(true).
 		WithMaxLength(100_000).
 		WithRetry(time.Second*10, 3).
-		WithDQL().
+		WithDLQ().
 		WithDLQMaxLength(10_000)
 
 	topology := bunmq.

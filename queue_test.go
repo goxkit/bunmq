@@ -194,7 +194,7 @@ func TestQueueDefinition_WithTTL(t *testing.T) {
 	}
 }
 
-func TestQueueDefinition_WithDQL(t *testing.T) {
+func TestQueueDefinition_WithDLQ(t *testing.T) {
 	tests := []struct {
 		name        string
 		queueName   string
@@ -215,15 +215,15 @@ func TestQueueDefinition_WithDQL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			q := NewQueue(tt.queueName)
-			result := q.WithDQL()
+			result := q.WithDLQ()
 			if result != q {
-				t.Error("WithDQL() should return the same QueueDefinition instance")
+				t.Error("WithDLQ() should return the same QueueDefinition instance")
 			}
 			if !q.withDLQ {
-				t.Error("WithDQL() should set withDLQ to true")
+				t.Error("WithDLQ() should set withDLQ to true")
 			}
 			if q.dqlName != tt.expectedDLQ {
-				t.Errorf("WithDQL() should set dqlName to %s, got %s", tt.expectedDLQ, q.dqlName)
+				t.Errorf("WithDLQ() should set dqlName to %s, got %s", tt.expectedDLQ, q.dqlName)
 			}
 		})
 	}
@@ -417,7 +417,7 @@ func TestQueueDefinition_FluentChaining(t *testing.T) {
 		Exclusive(false).
 		WithMaxLength(10000).
 		WithTTL(5*time.Minute).
-		WithDQL().
+		WithDLQ().
 		WithDLQMaxLength(1000).
 		WithRetry(30*time.Second, 3)
 

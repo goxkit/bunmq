@@ -85,7 +85,7 @@ func main() {
         Durable(true).
         WithMaxLength(100_000).
         WithRetry(time.Second*10, 3).
-        WithDQL().
+        WithDLQ().
         WithDLQMaxLength(10_000)
 
     // Create topology
@@ -208,7 +208,7 @@ topology.Exchange(bunmq.NewFanoutExchange("notifications"))
 orderQueue := bunmq.NewQueue("orders").
     Durable(true).
     WithRetry(time.Second*30, 5).
-    WithDQL()
+    WithDLQ()
 
 topology.Queue(orderQueue)
 
@@ -247,7 +247,7 @@ ttlQueue := bunmq.NewQueue("ttl-queue").
 resilientQueue := bunmq.NewQueue("resilient-queue").
     Durable(true).
     WithRetry(time.Second*30, 3).  // 30s delay, 3 retries
-    WithDQL()                      // Enable dead letter queue
+    WithDLQ()                      // Enable dead letter queue
 
 // Exclusive queue (deleted when connection closes)
 exclusiveQueue := bunmq.NewQueue("exclusive-queue").
@@ -383,7 +383,7 @@ Failed messages are automatically routed to dead letter queues for manual inspec
 
 ```go
 queueDef := bunmq.NewQueue("orders").
-    WithDQL()  // Creates "orders-dlq" automatically
+    WithDLQ()  // Creates "orders-dlq" automatically
 ```
 
 Messages are sent to the DLQ when:
@@ -468,7 +468,7 @@ Manage multiple queues with different configurations:
 
 ```go
 orderQueue := bunmq.NewQueue("orders").WithRetry(time.Second*30, 3)
-paymentQueue := bunmq.NewQueue("payments").WithDQL()
+paymentQueue := bunmq.NewQueue("payments").WithDLQ()
 notificationQueue := bunmq.NewQueue("notifications").Durable(false)
 
 topology.Queues([]*bunmq.QueueDefinition{
@@ -511,8 +511,8 @@ manager, err := bunmq.NewConnectionManager("my-app", connectionString, config)
 | `WithMaxLength(max)` | Max number of messages retained in the queue | Not set |
 | `WithTTL(duration)` | Message time-to-live | Not set |
 | `WithRetry(ttl, retries)` | Retry configuration | Disabled |
-| `WithDQL()` | Enable dead letter queue | Disabled |
-| `WithDQLWithDLQMaxLength(max)` | Max number of messages retained in the DLQ  | Not set |
+| `WithDLQ()` | Enable dead letter queue | Disabled |
+| `WithDLQWithDLQMaxLength(max)` | Max number of messages retained in the DLQ  | Not set |
 
 ## Best Practices
 
