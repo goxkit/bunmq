@@ -349,11 +349,11 @@ func TestTopology_DeclareQueues_DLQRoutingKey(t *testing.T) {
 	top := NewTopology("test-app", "amqp://test")
 
 	// queue with DLQ and Retry
-	qWithRetry := NewQueue("with-retry").WithDQL().WithRetry(30*time.Second, 3)
+	qWithRetry := NewQueue("with-retry").WithDLQ().WithRetry(30*time.Second, 3)
 	top.Queue(qWithRetry)
 
 	// queue with DLQ but no Retry
-	qWithoutRetry := NewQueue("no-retry").WithDQL()
+	qWithoutRetry := NewQueue("no-retry").WithDLQ()
 	top.Queue(qWithoutRetry)
 
 	tp, ok := top.(*topology)

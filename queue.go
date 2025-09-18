@@ -37,7 +37,7 @@ type QueueDefinition struct {
 //
 // Example usage:
 //
-//	 queueDef := bunmq.NewQueue("my-queue").Durable(true).WithRetry(time.Second*10, 3).WithDQL()
+//	 queueDef := bunmq.NewQueue("my-queue").Durable(true).WithRetry(time.Second*10, 3).WithDLQ()
 //
 //	This creates a durable queue with retry and dead letter queue enabled.
 //
@@ -85,10 +85,10 @@ func (q *QueueDefinition) WithTTL(ttl time.Duration) *QueueDefinition {
 	return q
 }
 
-// WithDQL enables a Dead Letter Queue (DLQ) for this queue.
+// WithDLQ enables a Dead Letter Queue (DLQ) for this queue.
 // Messages that are rejected, expired, or exceed max length will be routed to the DLQ.
 // The DLQ name is automatically generated as "<queue-name>-dlq".
-func (q *QueueDefinition) WithDQL() *QueueDefinition {
+func (q *QueueDefinition) WithDLQ() *QueueDefinition {
 	q.withDLQ = true
 	q.dqlName = fmt.Sprintf("%s-dlq", q.name)
 	return q
