@@ -226,7 +226,7 @@ func (t *topology) declareQueues() error {
 		}
 		if queue.withDLQ && queue.withRetry {
 			amqpDlqDeclarationOpts["x-dead-letter-exchange"] = ""
-			amqpDlqDeclarationOpts["x-dead-letter-routing-key"] = queue.DLQName()
+			amqpDlqDeclarationOpts["x-dead-letter-routing-key"] = queue.RetryName()
 		}
 
 		if queue.withDLQ && !queue.withRetry {
