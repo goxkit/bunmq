@@ -48,14 +48,12 @@ type (
 	// It maintains collections of exchanges, queues, and their bindings,
 	// and provides methods to declare and apply them to a RabbitMQ broker.
 	topology struct {
-		connectionString  string
-		appName           string
-		channel           AMQPChannel
-		queues            map[string]*QueueDefinition
-		queuesBinding     []*QueueBindingDefinition
-		exchanges         []*ExchangeDefinition
-		exchangesBinding  []*ExchangeBindingDefinition
-		connectionManager ConnectionManager
+		connectionString string
+		appName          string
+		queues           map[string]*QueueDefinition
+		queuesBinding    []*QueueBindingDefinition
+		exchanges        []*ExchangeDefinition
+		exchangesBinding []*ExchangeBindingDefinition
 	}
 )
 
@@ -147,45 +145,60 @@ func (t *topology) QueueBinding(b *QueueBindingDefinition) Topology {
 //   - Queue declaration failure (permission issues, invalid arguments)
 //   - Binding failure (non-existent queues or exchanges)
 func (t *topology) Apply() (ConnectionManager, error) {
+	logrus.Info("bunmq applying topology...")
 	manager, err := NewConnectionManager(t.appName, t.connectionString)
 	if err != nil {
+		logrus.WithError(err).Error("bunmq failure to create connection manager")
 		return nil, err
 	}
-
-	t.connectionManager = manager
 
 	ch, err := manager.GetChannel()
 	if err != nil {
+		logrus.WithError(err).Error("bunmq failure to get channel for topology declaration")
 		return nil, err
 	}
 
-	t.channel = ch
-
-	if err := t.declareExchanges(); err != nil {
+	if err := t.declareAndBindings(ch); err != nil {
+		logrus.WithError(err).Error("bunmq failure to declare topology")
 		return nil, err
 	}
 
-	if err := t.declareQueues(); err != nil {
-		return nil, err
-	}
+	manager.SetTopology(t)
 
-	if err := t.bindQueues(); err != nil {
-		return nil, err
-	}
-
-	if err := t.bindExchanges(); err != nil {
-		return nil, err
-	}
-
-	return t.connectionManager, nil
+	logrus.Info("bunmq topology applied successfully")
+	return manager, nil
 }
 
-// declareExchanges declares all the exchanges defined in the topology.
-func (t *topology) declareExchanges() error {
+func (t *topology) DeclareAndBindings(ch AMQPChannel) error {
+	if ch == nil {
+		return NullableChannelError
+	}
+
+	if err := t.DeclareExchanges(ch); err != nil {
+		return err
+	}
+
+	if err := t.DeclareQueues(ch); err != nil {
+		return err
+	}
+
+	if err := t.BindQueues(ch); err != nil {
+		return err
+	}
+
+	if err := t.BindExchanges(ch); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// DeclareExchanges declares all the exchanges defined in the topology.
+func (t *topology) DeclareExchanges(ch AMQPChannel) error {
 	logrus.Info("bunmq declaring exchanges...")
 
 	for _, exch := range t.exchanges {
-		if err := t.channel.ExchangeDeclare(exch.name, exch.kind.String(), exch.durable, exch.delete, false, false, exch.params); err != nil {
+		if err := ch.ExchangeDeclare(exch.name, exch.kind.String(), exch.durable, exch.delete, false, false, exch.params); err != nil {
 			logrus.WithError(err).Errorf("bunmq failure to declare exchange: %s", exch.name)
 			return err
 		}
@@ -196,10 +209,10 @@ func (t *topology) declareExchanges() error {
 	return nil
 }
 
-// declareQueues declares all the queues defined in the topology.
+// DeclareQueues declares all the queues defined in the topology.
 // For each queue, it also declares any associated retry or dead letter queues
 // as defined in the queue properties.
-func (t *topology) declareQueues() error {
+func (t *topology) DeclareQueues(ch AMQPChannel) error {
 	logrus.Info("bunmq declaring queues...")
 
 	for _, queue := range t.queues {
@@ -208,7 +221,7 @@ func (t *topology) declareQueues() error {
 		if queue.withRetry {
 			logrus.Infof("bunmq declaring retry queue: %s ...", queue.RetryName())
 			//queue.RetryName(), true, false, false, false, amqpDlqDeclarationOpts
-			if _, err := t.channel.QueueDeclare(queue.RetryName(), queue.durable, queue.delete, queue.exclusive, false, amqp.Table{
+			if _, err := ch.QueueDeclare(queue.RetryName(), queue.durable, queue.delete, queue.exclusive, false, amqp.Table{
 				"x-dead-letter-exchange":    "",
 				"x-dead-letter-routing-key": queue.name,
 				"x-message-ttl":             queue.retryTTL.Milliseconds(),
@@ -242,7 +255,7 @@ func (t *topology) declareQueues() error {
 			logrus.Infof("bunmq declaring dlq queue: %s ...", queue.DLQName())
 
 			//queue.DLQName(), true, false, false, false, amqpDlqDeclarationOpts
-			if _, err := t.channel.QueueDeclare(queue.DLQName(), queue.durable, queue.delete, queue.exclusive, false, amqpDlqDeclarationOpts); err != nil {
+			if _, err := ch.QueueDeclare(queue.DLQName(), queue.durable, queue.delete, queue.exclusive, false, amqpDlqDeclarationOpts); err != nil {
 				logrus.WithError(err).Errorf("bunmq failure to declare dlq queue: %s", queue.DLQName())
 				return err
 			}
@@ -255,7 +268,7 @@ func (t *topology) declareQueues() error {
 			amqpDlqDeclarationOpts["x-max-length"] = queue.maxLength
 		}
 
-		if _, err := t.channel.QueueDeclare(queue.name, queue.durable, queue.delete, queue.exclusive, false, amqpDlqDeclarationOpts); err != nil {
+		if _, err := ch.QueueDeclare(queue.name, queue.durable, queue.delete, queue.exclusive, false, amqpDlqDeclarationOpts); err != nil {
 			logrus.WithError(err).Errorf("bunmq failure to declare queue: %s", queue.name)
 			return err
 		}
@@ -265,13 +278,13 @@ func (t *topology) declareQueues() error {
 	return nil
 }
 
-// bindQueues binds all the queues to their respective exchanges
+// BindQueues binds all the queues to their respective exchanges
 // according to the queue bindings defined in the topology.
-func (t *topology) bindQueues() error {
+func (t *topology) BindQueues(ch AMQPChannel) error {
 	logrus.Info("bunmq binding queues...")
 
 	for _, bind := range t.queuesBinding {
-		if err := t.channel.QueueBind(bind.queue, bind.routingKey, bind.exchange, false, bind.args); err != nil {
+		if err := ch.QueueBind(bind.queue, bind.routingKey, bind.exchange, false, bind.args); err != nil {
 			logrus.WithError(err).Errorf("bunmq failure to bind queue: %s to exchange: %s", bind.queue, bind.exchange)
 			return err
 		}
@@ -282,13 +295,13 @@ func (t *topology) bindQueues() error {
 	return nil
 }
 
-// bindExchanges binds exchanges to each other according to
+// BindExchanges binds exchanges to each other according to
 // the exchange bindings defined in the topology.
-func (t *topology) bindExchanges() error {
+func (t *topology) BindExchanges(ch AMQPChannel) error {
 	logrus.Info("bunmq binding exchanges...")
 
 	for _, bind := range t.exchangesBinding {
-		if err := t.channel.ExchangeBind(bind.destination, bind.routingKey, bind.source, false, bind.args); err != nil {
+		if err := ch.ExchangeBind(bind.destination, bind.routingKey, bind.source, false, bind.args); err != nil {
 			logrus.WithError(err).Errorf("bunmq failure to bind exchange: %s to %s", bind.destination, bind.source)
 			return err
 		}
