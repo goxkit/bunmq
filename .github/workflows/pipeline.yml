@@ -54,6 +54,7 @@ jobs:
         with:
           files: ./coverage.out
           flags: unittests
+          name: bunmq
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
