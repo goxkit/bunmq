@@ -113,7 +113,7 @@ func TestConnectionManager_GetConnection(t *testing.T) {
 		{
 			name: "connection is closed",
 			setup: func(cm *connectionManager, mockConn *MockRMQConnection) {
-				mockConn.Close()
+				_ = mockConn.Close()
 			},
 			expectError: true,
 			errorMsg:    "connection is not available",
@@ -187,7 +187,7 @@ func TestConnectionManager_GetChannel(t *testing.T) {
 		{
 			name: "channel is closed",
 			setup: func(cm *connectionManager, mockCh *MockAMQPChannel) {
-				mockCh.Close()
+				_ = mockCh.Close()
 			},
 			expectError: true,
 			errorMsg:    "channel is not available",
@@ -301,7 +301,7 @@ func TestConnectionManager_IsHealthy(t *testing.T) {
 		{
 			name: "connection is closed",
 			setup: func(cm *connectionManager, mockConn *MockRMQConnection, mockCh *MockAMQPChannel) {
-				mockConn.Close()
+				_ = mockConn.Close()
 			},
 			expected: false,
 		},
@@ -315,7 +315,7 @@ func TestConnectionManager_IsHealthy(t *testing.T) {
 		{
 			name: "channel is closed",
 			setup: func(cm *connectionManager, mockConn *MockRMQConnection, mockCh *MockAMQPChannel) {
-				mockCh.Close()
+				_ = mockCh.Close()
 			},
 			expected: false,
 		},
@@ -421,14 +421,14 @@ func TestConnectionManager_Close(t *testing.T) {
 		{
 			name: "channel already closed",
 			setup: func(cm *connectionManager, mockConn *MockRMQConnection, mockCh *MockAMQPChannel) {
-				mockCh.Close()
+				_ = mockCh.Close()
 			},
 			expectErr: false,
 		},
 		{
 			name: "connection already closed",
 			setup: func(cm *connectionManager, mockConn *MockRMQConnection, mockCh *MockAMQPChannel) {
-				mockConn.Close()
+				_ = mockConn.Close()
 			},
 			expectErr: false,
 		},
@@ -600,7 +600,7 @@ func TestConnectionManager_HealthMonitoring(t *testing.T) {
 		}
 
 		// Test unhealthy states
-		mockConn.Close()
+		_ = mockConn.Close()
 		if cm.IsHealthy() {
 			t.Error("Expected connection manager to be unhealthy when connection is closed")
 		}
@@ -608,7 +608,7 @@ func TestConnectionManager_HealthMonitoring(t *testing.T) {
 		// Reset connection, close channel
 		mockConn = NewMockRMQConnection()
 		cm.conn = mockConn
-		mockCh.Close()
+		_ = mockCh.Close()
 		if cm.IsHealthy() {
 			t.Error("Expected connection manager to be unhealthy when channel is closed")
 		}
