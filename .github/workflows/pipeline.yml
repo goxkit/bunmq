@@ -47,7 +47,15 @@ jobs:
           gosec -conf .gosec.json ./...
 
       - name: Run tests
-        run: go test -v ./...
+        run: make test-coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.out
+          flags: unittests
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
       - name: gosec reports (SARIF + HTML)
         if: always()
