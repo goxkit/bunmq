@@ -10,4 +10,5 @@ comment:
   layout: "diff, flags, files"
   behavior: default
 ignore:
-  - examples/*
+  - examples
+  - .github
