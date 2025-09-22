@@ -33,6 +33,9 @@ type (
 
 		// SetReconnectCallback sets a callback function that's called when reconnection occurs
 		SetReconnectCallback(callback func(conn RMQConnection, ch AMQPChannel))
+
+		// SetTopology sets the topology for the connection manager
+		SetTopology(t Topology)
 	}
 
 	// connectionManager implements ConnectionManager with automatic reconnection capabilities
@@ -58,6 +61,9 @@ type (
 		// Context for cancellation
 		ctx    context.Context
 		cancel context.CancelFunc
+
+		// Associated topology for re-declaring on reconnect
+		topology *topology
 	}
 
 	// ReconnectionConfig holds configuration for reconnection behavior
@@ -281,7 +287,30 @@ func (cm *connectionManager) handleConnectionFailure() {
 		cm.mu.Unlock()
 
 		logrus.WithField("attempt", attempt).Info("bunmq reconnection successful")
-		return
+		logrus.Info("bunmq re-declaring topology...")
+
+		if cm.topology == nil {
+			logrus.Info("bunmq no topology to re-declare")
+			return
+		}
+
+		err := cm.topology.DeclareAndBindings(cm.ch)
+		if err == nil {
+			logrus.Info("bunmq topology re-declared successfully")
+			return
+		}
+
+		logrus.WithError(err).Error("bunmq failed to re-declare topology after reconnection")
+		logrus.Warn("bunmq closing connection manager to trigger another reconnection")
+
+		if err := cm.conn.Close(); err != nil {
+			logrus.WithError(err).Error("bunmq error closing connection")
+			return
+		}
+
+		cm.mu.Lock()
+		cm.closed = true
+		cm.mu.Unlock()
 	}
 }
 
@@ -346,6 +375,14 @@ func (cm *connectionManager) SetReconnectCallback(callback func(conn RMQConnecti
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	cm.reconnectCallback = callback
+}
+
+func (cm *connectionManager) SetTopology(t Topology) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if topo, ok := t.(*topology); ok {
+		cm.topology = topo
+	}
 }
 
 // Close gracefully closes the connection manager

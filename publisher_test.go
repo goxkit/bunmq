@@ -22,6 +22,7 @@ type MockConnectionManager struct {
 	getChannelErr     error
 	closeErr          error
 	reconnectCallback func(RMQConnection, AMQPChannel)
+	topology          *topology
 }
 
 func NewMockConnectionManager() *MockConnectionManager {
@@ -63,6 +64,10 @@ func (m *MockConnectionManager) IsHealthy() bool {
 
 func (m *MockConnectionManager) SetReconnectCallback(callback func(conn RMQConnection, ch AMQPChannel)) {
 	m.reconnectCallback = callback
+}
+
+func (m *MockConnectionManager) SetTopology(t Topology) {
+	m.topology = t.(*topology)
 }
 
 // Helper methods for testing
