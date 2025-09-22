@@ -950,3 +950,436 @@ func TestDispatcher_ExtractMetadata_AdditionalCases(t *testing.T) {
 		t.Error("Failed to assert dispatcher to metadata extractor interface")
 	}
 }
+
+func TestDispatcher_EvaluateDefByReceivedMsg(t *testing.T) {
+	manager := NewMockConnectionManager()
+	queueDef := NewQueue("test-queue")
+	dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+
+	// Cast to access internal methods
+	type defEvaluator interface {
+		evaluateDefByReceivedMsg(queueDef *QueueDefinition, metadata *DeliveryMetadata) (*ConsumerDefinition, error)
+	}
+
+	if evaluator, ok := dispatcher.(defEvaluator); ok {
+		// Register different types of consumers for testing
+		testHandler := func(ctx context.Context, msg any, metadata *DeliveryMetadata) error { return nil }
+
+		// Create different message types to avoid conflicts
+		type TypeMessage struct{ ID string }
+		type ExchangeMessage struct{ Name string }
+		type RoutingMessage struct{ Value int }
+		type ExchangeRoutingMessage struct{ Data string }
+
+		// Register by type
+		err := dispatcher.RegisterByType("test-queue", TypeMessage{}, testHandler)
+		if err != nil {
+			t.Fatalf("Failed to register by type: %v", err)
+		}
+
+		// Register by exchange
+		err = dispatcher.RegisterByExchange("test-queue", ExchangeMessage{}, "test-exchange", testHandler)
+		if err != nil {
+			t.Fatalf("Failed to register by exchange: %v", err)
+		}
+
+		// Register by routing key
+		err = dispatcher.RegisterByRoutingKey("test-queue", RoutingMessage{}, "test.routing.key", testHandler)
+		if err != nil {
+			t.Fatalf("Failed to register by routing key: %v", err)
+		}
+
+		// Register by exchange and routing key
+		err = dispatcher.RegisterByExchangeRoutingKey("test-queue", ExchangeRoutingMessage{}, "another-exchange", "another.key", testHandler)
+		if err != nil {
+			t.Fatalf("Failed to register by exchange and routing key: %v", err)
+		}
+
+		tests := []struct {
+			name           string
+			metadata       *DeliveryMetadata
+			expectedType   ConsumerDefinitionType
+			expectError    bool
+			expectedErrMsg string
+		}{
+			{
+				name: "match by type",
+				metadata: &DeliveryMetadata{
+					Type:           "bunmq.TypeMessage",
+					OriginExchange: "other-exchange",
+					RoutingKey:     "other.key",
+				},
+				expectedType: ConsumerDefinitionByType,
+				expectError:  false,
+			},
+			{
+				name: "match by exchange",
+				metadata: &DeliveryMetadata{
+					Type:           "unknown.type",
+					OriginExchange: "test-exchange",
+					RoutingKey:     "other.key",
+				},
+				expectedType: ConsumerDefinitionByExchange,
+				expectError:  false,
+			},
+			{
+				name: "match by routing key",
+				metadata: &DeliveryMetadata{
+					Type:           "unknown.type",
+					OriginExchange: "other-exchange",
+					RoutingKey:     "test.routing.key",
+				},
+				expectedType: ConsumerDefinitionByRoutingKey,
+				expectError:  false,
+			},
+			{
+				name: "match by exchange and routing key",
+				metadata: &DeliveryMetadata{
+					Type:           "unknown.type",
+					OriginExchange: "another-exchange",
+					RoutingKey:     "another.key",
+				},
+				expectedType: ConsumerDefinitionByExchangeRoutingKey,
+				expectError:  false,
+			},
+			{
+				name: "no match found",
+				metadata: &DeliveryMetadata{
+					Type:           "unknown.type",
+					OriginExchange: "unknown-exchange",
+					RoutingKey:     "unknown.key",
+				},
+				expectError:    true,
+				expectedErrMsg: "no consumer definition found for queue",
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				def, err := evaluator.evaluateDefByReceivedMsg(queueDef, tt.metadata)
+
+				if tt.expectError {
+					if err == nil {
+						t.Errorf("Expected error but got none")
+					} else if !contains(err.Error(), tt.expectedErrMsg) {
+						t.Errorf("Expected error message to contain '%s', got '%s'", tt.expectedErrMsg, err.Error())
+					}
+				} else {
+					if err != nil {
+						t.Errorf("Unexpected error: %v", err)
+					}
+					if def == nil {
+						t.Errorf("Expected consumer definition but got nil")
+					} else if def.typ != tt.expectedType {
+						t.Errorf("Expected type %d, got %d", tt.expectedType, def.typ)
+					}
+				}
+			})
+		}
+
+		// Test error cases
+		t.Run("queue with no consumer definitions", func(t *testing.T) {
+			emptyQueueDef := NewQueue("empty-queue")
+			emptyDispatcher := NewDispatcher(manager, []*QueueDefinition{emptyQueueDef})
+
+			if emptyEvaluator, ok := emptyDispatcher.(defEvaluator); ok {
+				metadata := &DeliveryMetadata{Type: "test.type"}
+				def, err := emptyEvaluator.evaluateDefByReceivedMsg(emptyQueueDef, metadata)
+
+				if err == nil {
+					t.Errorf("Expected error for empty consumer definitions")
+				}
+				if def != nil {
+					t.Errorf("Expected nil definition for empty consumer definitions")
+				}
+			}
+		})
+
+		t.Run("queue not in consumer definitions", func(t *testing.T) {
+			unknownQueueDef := NewQueue("unknown-queue")
+			metadata := &DeliveryMetadata{Type: "test.type"}
+			def, err := evaluator.evaluateDefByReceivedMsg(unknownQueueDef, metadata)
+
+			if err == nil {
+				t.Errorf("Expected error for unknown queue")
+			}
+			if def != nil {
+				t.Errorf("Expected nil definition for unknown queue")
+			}
+		})
+
+	} else {
+		t.Error("Failed to assert dispatcher to definition evaluator interface")
+	}
+}
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > len(substr) && func() bool {
+			for i := 0; i <= len(s)-len(substr); i++ {
+				if s[i:i+len(substr)] == substr {
+					return true
+				}
+			}
+			return false
+		}()))
+}
+
+func TestDispatcher_ProcessReceivedMessage(t *testing.T) {
+	// Test processReceivedMessage indirectly through behavior verification
+	// Since we can't override Ack/Nack methods, we'll verify the function doesn't panic
+	// and that it processes different message types correctly
+
+	// Cast to access internal methods
+	type messageProcessor interface {
+		processReceivedMessage(queueDef *QueueDefinition, received *amqp.Delivery)
+	}
+
+	tests := []struct {
+		name            string
+		setupQueue      func() *QueueDefinition
+		setupDispatcher func() (Dispatcher, *MockConnectionManager)
+		delivery        amqp.Delivery
+		shouldPanic     bool
+	}{
+		{
+			name: "successful message processing - no panic",
+			setupQueue: func() *QueueDefinition {
+				return NewQueue("test-queue")
+			},
+			setupDispatcher: func() (Dispatcher, *MockConnectionManager) {
+				manager := NewMockConnectionManager()
+				queueDef := NewQueue("test-queue")
+				dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+
+				// Register a handler that succeeds
+				dispatcher.RegisterByType("test-queue", DispatcherTestMessage{},
+					func(ctx context.Context, msg any, metadata *DeliveryMetadata) error {
+						return nil
+					})
+				return dispatcher, manager
+			},
+			delivery: amqp.Delivery{
+				MessageId: "test-msg-1",
+				Type:      "bunmq.DispatcherTestMessage",
+				Body:      []byte(`{"id":"123","content":"test"}`),
+				Headers:   amqp.Table{},
+			},
+			shouldPanic: false,
+		},
+		{
+			name: "unmarshal error - handles gracefully",
+			setupQueue: func() *QueueDefinition {
+				return NewQueue("test-queue")
+			},
+			setupDispatcher: func() (Dispatcher, *MockConnectionManager) {
+				manager := NewMockConnectionManager()
+				queueDef := NewQueue("test-queue")
+				dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+
+				dispatcher.RegisterByType("test-queue", DispatcherTestMessage{},
+					func(ctx context.Context, msg any, metadata *DeliveryMetadata) error {
+						return nil
+					})
+				return dispatcher, manager
+			},
+			delivery: amqp.Delivery{
+				MessageId: "test-msg-2",
+				Type:      "bunmq.DispatcherTestMessage",
+				Body:      []byte(`invalid json`),
+				Headers:   amqp.Table{},
+			},
+			shouldPanic: false,
+		},
+		{
+			name: "handler error with DLQ - handles gracefully",
+			setupQueue: func() *QueueDefinition {
+				return NewQueue("test-queue").WithDLQ()
+			},
+			setupDispatcher: func() (Dispatcher, *MockConnectionManager) {
+				manager := NewMockConnectionManager()
+				queueDef := NewQueue("test-queue").WithDLQ()
+				dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+
+				// Register a handler that fails
+				dispatcher.RegisterByType("test-queue", DispatcherTestMessage{},
+					func(ctx context.Context, msg any, metadata *DeliveryMetadata) error {
+						return errors.New("handler error")
+					})
+				return dispatcher, manager
+			},
+			delivery: amqp.Delivery{
+				MessageId: "test-msg-3",
+				Type:      "bunmq.DispatcherTestMessage",
+				Body:      []byte(`{"id":"123","content":"test"}`),
+				Headers:   amqp.Table{},
+			},
+			shouldPanic: false,
+		},
+		{
+			name: "handler retryable error - handles gracefully",
+			setupQueue: func() *QueueDefinition {
+				return NewQueue("test-queue").WithRetry(time.Second*10, 3)
+			},
+			setupDispatcher: func() (Dispatcher, *MockConnectionManager) {
+				manager := NewMockConnectionManager()
+				queueDef := NewQueue("test-queue").WithRetry(time.Second*10, 3)
+				dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+
+				// Register a handler that returns retryable error
+				dispatcher.RegisterByType("test-queue", DispatcherTestMessage{},
+					func(ctx context.Context, msg any, metadata *DeliveryMetadata) error {
+						return RetryableError
+					})
+				return dispatcher, manager
+			},
+			delivery: amqp.Delivery{
+				MessageId: "test-msg-4",
+				Type:      "bunmq.DispatcherTestMessage",
+				Body:      []byte(`{"id":"123","content":"test"}`),
+				Headers:   amqp.Table{},
+			},
+			shouldPanic: false,
+		},
+		{
+			name: "no consumer found - handles gracefully",
+			setupQueue: func() *QueueDefinition {
+				return NewQueue("test-queue")
+			},
+			setupDispatcher: func() (Dispatcher, *MockConnectionManager) {
+				manager := NewMockConnectionManager()
+				queueDef := NewQueue("test-queue")
+				dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+				// Don't register any handlers
+				return dispatcher, manager
+			},
+			delivery: amqp.Delivery{
+				MessageId: "test-msg-6",
+				Type:      "unknown.type",
+				Body:      []byte(`{"id":"123","content":"test"}`),
+				Headers:   amqp.Table{},
+			},
+			shouldPanic: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			queueDef := tt.setupQueue()
+			dispatcher, manager := tt.setupDispatcher()
+
+			defer func() {
+				if r := recover(); r != nil {
+					if !tt.shouldPanic {
+						t.Errorf("processReceivedMessage panicked unexpectedly: %v", r)
+					}
+				} else if tt.shouldPanic {
+					t.Error("processReceivedMessage should have panicked but didn't")
+				}
+			}()
+
+			// Process the message
+			if processor, ok := dispatcher.(messageProcessor); ok {
+				processor.processReceivedMessage(queueDef, &tt.delivery)
+			} else {
+				t.Error("Failed to assert dispatcher to message processor interface")
+			}
+
+			_ = manager // Prevent unused variable warning
+		})
+	}
+}
+
+func TestDispatcher_PublishToDlq(t *testing.T) {
+	// Test the publishToDlq function
+
+	// Cast to access internal methods
+	type dlqPublisher interface {
+		publishToDlq(queueDef *QueueDefinition, received *amqp.Delivery, err error)
+	}
+
+	tests := []struct {
+		name            string
+		setupQueue      func() *QueueDefinition
+		setupDispatcher func() (Dispatcher, *MockConnectionManager, *MockAMQPChannel)
+		delivery        amqp.Delivery
+		handlerError    error
+		shouldPanic     bool
+	}{
+		{
+			name: "DLQ publish without DLQ configured - handles gracefully",
+			setupQueue: func() *QueueDefinition {
+				return NewQueue("test-queue") // No DLQ
+			},
+			setupDispatcher: func() (Dispatcher, *MockConnectionManager, *MockAMQPChannel) {
+				manager := NewMockConnectionManager()
+				channel := NewMockAMQPChannel()
+				manager.SetChannel(channel)
+
+				queueDef := NewQueue("test-queue")
+				dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+
+				return dispatcher, manager, channel
+			},
+			delivery: amqp.Delivery{
+				MessageId: "test-msg-2",
+				Type:      "bunmq.DispatcherTestMessage",
+				Body:      []byte(`{"id":"123","content":"test"}`),
+				Headers:   amqp.Table{},
+			},
+			handlerError: errors.New("handler failed"),
+			shouldPanic:  false,
+		},
+		{
+			name: "channel error - handles gracefully",
+			setupQueue: func() *QueueDefinition {
+				return NewQueue("test-queue").WithDLQ()
+			},
+			setupDispatcher: func() (Dispatcher, *MockConnectionManager, *MockAMQPChannel) {
+				manager := NewMockConnectionManager()
+				manager.SetGetChannelError(errors.New("channel error"))
+
+				queueDef := NewQueue("test-queue").WithDLQ()
+				dispatcher := NewDispatcher(manager, []*QueueDefinition{queueDef})
+
+				return dispatcher, manager, nil
+			},
+			delivery: amqp.Delivery{
+				MessageId: "test-msg-3",
+				Type:      "bunmq.DispatcherTestMessage",
+				Body:      []byte(`{"id":"123","content":"test"}`),
+				Headers:   amqp.Table{},
+			},
+			handlerError: errors.New("handler failed"),
+			shouldPanic:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			queueDef := tt.setupQueue()
+			dispatcher, manager, channel := tt.setupDispatcher()
+
+			defer func() {
+				if r := recover(); r != nil {
+					if !tt.shouldPanic {
+						t.Errorf("publishToDlq panicked unexpectedly: %v", r)
+					}
+				} else if tt.shouldPanic {
+					t.Error("publishToDlq should have panicked but didn't")
+				}
+			}()
+
+			// Publish to DLQ
+			if publisher, ok := dispatcher.(dlqPublisher); ok {
+				publisher.publishToDlq(queueDef, &tt.delivery, tt.handlerError)
+			} else {
+				t.Error("Failed to assert dispatcher to DLQ publisher interface")
+			}
+
+			_ = manager // Prevent unused variable warning
+			_ = channel // Prevent unused variable warning
+		})
+	}
+}
