@@ -4,6 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/goxkit/bunmq)](https://goreportcard.com/report/github.com/goxkit/bunmq)
 [![pipeline](https://github.com/goxkit/bunmq/actions/workflows/pipeline.yml/badge.svg)](https://github.com/goxkit/bunmq/actions/workflows/pipeline.yml)
 [![Code Scanning](https://img.shields.io/badge/code%20scanning-passing-brightgreen)](https://github.com/goxkit/bunmq/security/code-scanning)
+[![codecov](https://codecov.io/gh/goxkit/bunmq/graph/badge.svg?token=OA1KSI9194)](https://codecov.io/gh/goxkit/bunmq)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A resilient and robust RabbitMQ library for Go applications, providing high-level abstractions for topology management, message publishing, and consuming with built-in retry mechanisms, dead letter queue (DLQ) support, and **automatic connection/channel recovery**.

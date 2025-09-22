@@ -390,3 +390,574 @@ func TestTopology_DeclareQueues_DLQRoutingKey(t *testing.T) {
 		t.Fatalf("%s x-dead-letter-routing-key = %v, want %s", dlqName2, rk2, qWithoutRetry.DLQName())
 	}
 }
+
+func TestTopology_DeclareAndBindings(t *testing.T) {
+	tests := []struct {
+		name          string
+		setup         func() Topology
+		setupChannel  func() AMQPChannel
+		expectedError error
+	}{
+		{
+			name: "nil channel",
+			setup: func() Topology {
+				return NewTopology("test-app", "amqp://test")
+			},
+			setupChannel: func() AMQPChannel {
+				return nil
+			},
+			expectedError: NullableChannelError,
+		},
+		{
+			name: "successful declare and bindings",
+			setup: func() Topology {
+				queue := NewQueue("test-queue")
+				exchange := NewDirectExchange("test-exchange")
+				queueBinding := NewQueueBinding().Queue("test-queue").Exchange("test-exchange").RoutingKey("test.key")
+				exchangeBinding := NewExchangeBiding().Source("test-exchange").Destination("dest-exchange").RoutingKey("exchange.key")
+
+				return NewTopology("test-app", "amqp://test").
+					Queue(queue).
+					Exchange(exchange).
+					Exchange(NewDirectExchange("dest-exchange")).
+					QueueBinding(queueBinding).
+					ExchangeBinding(exchangeBinding)
+			},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "exchange declare error",
+			setup: func() Topology {
+				exchange := NewDirectExchange("test-exchange")
+				return NewTopology("test-app", "amqp://test").Exchange(exchange)
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				mockCh.SetExchangeDeclareError(NewBunMQError("exchange declare failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("exchange declare failed"),
+		},
+		{
+			name: "queue declare error",
+			setup: func() Topology {
+				queue := NewQueue("test-queue")
+				return NewTopology("test-app", "amqp://test").Queue(queue)
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				mockCh.SetQueueDeclareError(NewBunMQError("queue declare failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("queue declare failed"),
+		},
+		{
+			name: "queue bind error",
+			setup: func() Topology {
+				queue := NewQueue("test-queue")
+				exchange := NewDirectExchange("test-exchange")
+				queueBinding := NewQueueBinding().Queue("test-queue").Exchange("test-exchange").RoutingKey("test.key")
+
+				return NewTopology("test-app", "amqp://test").
+					Queue(queue).
+					Exchange(exchange).
+					QueueBinding(queueBinding)
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				mockCh.SetQueueBindError(NewBunMQError("queue bind failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("queue bind failed"),
+		},
+		{
+			name: "exchange bind error",
+			setup: func() Topology {
+				exchangeBinding := NewExchangeBiding().Source("test-exchange").Destination("dest-exchange").RoutingKey("exchange.key")
+
+				return NewTopology("test-app", "amqp://test").
+					Exchange(NewDirectExchange("test-exchange")).
+					Exchange(NewDirectExchange("dest-exchange")).
+					ExchangeBinding(exchangeBinding)
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				mockCh.SetExchangeBindError(NewBunMQError("exchange bind failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("exchange bind failed"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			topo := tt.setup()
+			channel := tt.setupChannel()
+
+			tp, ok := topo.(*topology)
+			if !ok {
+				t.Fatal("failed to cast Topology to *topology")
+			}
+
+			err := tp.DeclareAndBindings(channel)
+
+			if tt.expectedError != nil {
+				if err == nil {
+					t.Errorf("DeclareAndBindings() expected error %v, got nil", tt.expectedError)
+				} else if err.Error() != tt.expectedError.Error() {
+					t.Errorf("DeclareAndBindings() error = %v, expectedError %v", err, tt.expectedError)
+				}
+			} else if err != nil {
+				t.Errorf("DeclareAndBindings() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
+func TestTopology_DeclareExchanges(t *testing.T) {
+	tests := []struct {
+		name          string
+		exchanges     []*ExchangeDefinition
+		setupChannel  func() AMQPChannel
+		expectedError error
+	}{
+		{
+			name:      "no exchanges",
+			exchanges: []*ExchangeDefinition{},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "single direct exchange",
+			exchanges: []*ExchangeDefinition{
+				NewDirectExchange("orders"),
+			},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "multiple different exchange types",
+			exchanges: []*ExchangeDefinition{
+				NewDirectExchange("orders"),
+				NewFanoutExchange("notifications"),
+				NewDirectExchange("events"),
+				NewFanoutExchange("routing"),
+			},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "exchange declare error",
+			exchanges: []*ExchangeDefinition{
+				NewDirectExchange("failing-exchange"),
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				mockCh.SetExchangeDeclareError(NewBunMQError("exchange declare failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("exchange declare failed"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			topo := NewTopology("test-app", "amqp://test")
+
+			// Add exchanges to topology
+			for _, exchange := range tt.exchanges {
+				topo.Exchange(exchange)
+			}
+
+			channel := tt.setupChannel()
+
+			tp, ok := topo.(*topology)
+			if !ok {
+				t.Fatal("failed to cast Topology to *topology")
+			}
+
+			err := tp.DeclareExchanges(channel)
+
+			if tt.expectedError != nil {
+				if err == nil {
+					t.Errorf("DeclareExchanges() expected error %v, got nil", tt.expectedError)
+				} else if err.Error() != tt.expectedError.Error() {
+					t.Errorf("DeclareExchanges() error = %v, expectedError %v", err, tt.expectedError)
+				}
+			} else if err != nil {
+				t.Errorf("DeclareExchanges() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
+func TestTopology_BindQueues(t *testing.T) {
+	tests := []struct {
+		name          string
+		bindings      []*QueueBindingDefinition
+		setupChannel  func() AMQPChannel
+		expectedError error
+	}{
+		{
+			name:     "no bindings",
+			bindings: []*QueueBindingDefinition{},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "single queue binding",
+			bindings: []*QueueBindingDefinition{
+				NewQueueBinding().Queue("orders").Exchange("order-exchange").RoutingKey("order.created"),
+			},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "multiple queue bindings",
+			bindings: []*QueueBindingDefinition{
+				NewQueueBinding().Queue("orders").Exchange("order-exchange").RoutingKey("order.created"),
+				NewQueueBinding().Queue("payments").Exchange("payment-exchange").RoutingKey("payment.processed"),
+				NewQueueBinding().Queue("notifications").Exchange("notification-exchange").RoutingKey("notification.sent"),
+			},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "queue bind error",
+			bindings: []*QueueBindingDefinition{
+				NewQueueBinding().Queue("failing-queue").Exchange("test-exchange").RoutingKey("test.key"),
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				mockCh.SetQueueBindError(NewBunMQError("queue bind failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("queue bind failed"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			topo := NewTopology("test-app", "amqp://test")
+
+			// Add bindings to topology
+			for _, binding := range tt.bindings {
+				topo.QueueBinding(binding)
+			}
+
+			channel := tt.setupChannel()
+
+			tp, ok := topo.(*topology)
+			if !ok {
+				t.Fatal("failed to cast Topology to *topology")
+			}
+
+			err := tp.BindQueues(channel)
+
+			if tt.expectedError != nil {
+				if err == nil {
+					t.Errorf("BindQueues() expected error %v, got nil", tt.expectedError)
+				} else if err.Error() != tt.expectedError.Error() {
+					t.Errorf("BindQueues() error = %v, expectedError %v", err, tt.expectedError)
+				}
+			} else if err != nil {
+				t.Errorf("BindQueues() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
+func TestTopology_BindExchanges(t *testing.T) {
+	tests := []struct {
+		name          string
+		bindings      []*ExchangeBindingDefinition
+		setupChannel  func() AMQPChannel
+		expectedError error
+	}{
+		{
+			name:     "no bindings",
+			bindings: []*ExchangeBindingDefinition{},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "single exchange binding",
+			bindings: []*ExchangeBindingDefinition{
+				NewExchangeBiding().Source("orders").Destination("notifications").RoutingKey("order.created"),
+			},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "multiple exchange bindings",
+			bindings: []*ExchangeBindingDefinition{
+				NewExchangeBiding().Source("orders").Destination("notifications").RoutingKey("order.created"),
+				NewExchangeBiding().Source("payments").Destination("audit").RoutingKey("payment.processed"),
+				NewExchangeBiding().Source("users").Destination("analytics").RoutingKey("user.action"),
+			},
+			setupChannel: func() AMQPChannel {
+				return NewMockAMQPChannel()
+			},
+			expectedError: nil,
+		},
+		{
+			name: "exchange bind error",
+			bindings: []*ExchangeBindingDefinition{
+				NewExchangeBiding().Source("failing-source").Destination("dest").RoutingKey("test.key"),
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				mockCh.SetExchangeBindError(NewBunMQError("exchange bind failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("exchange bind failed"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			topo := NewTopology("test-app", "amqp://test")
+
+			// Add bindings to topology
+			for _, binding := range tt.bindings {
+				topo.ExchangeBinding(binding)
+			}
+
+			channel := tt.setupChannel()
+
+			tp, ok := topo.(*topology)
+			if !ok {
+				t.Fatal("failed to cast Topology to *topology")
+			}
+
+			err := tp.BindExchanges(channel)
+
+			if tt.expectedError != nil {
+				if err == nil {
+					t.Errorf("BindExchanges() expected error %v, got nil", tt.expectedError)
+				} else if err.Error() != tt.expectedError.Error() {
+					t.Errorf("BindExchanges() error = %v, expectedError %v", err, tt.expectedError)
+				}
+			} else if err != nil {
+				t.Errorf("BindExchanges() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
+func TestTopology_DeclareQueues_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name          string
+		setup         func() Topology
+		setupChannel  func() AMQPChannel
+		expectedError error
+	}{
+		{
+			name: "queue declare error for main queue",
+			setup: func() Topology {
+				queue := NewQueue("failing-queue")
+				return NewTopology("test-app", "amqp://test").Queue(queue)
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				mockCh.SetQueueDeclareError(NewBunMQError("queue declare failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("queue declare failed"),
+		},
+		{
+			name: "queue declare error for retry queue",
+			setup: func() Topology {
+				queue := NewQueue("test-queue").WithRetry(30*time.Second, 3)
+				return NewTopology("test-app", "amqp://test").Queue(queue)
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				// Mock will fail on first QueueDeclare call (retry queue)
+				mockCh.SetQueueDeclareError(NewBunMQError("retry queue declare failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("retry queue declare failed"),
+		},
+		{
+			name: "queue declare error for DLQ queue",
+			setup: func() Topology {
+				queue := NewQueue("test-queue").WithDLQ()
+				return NewTopology("test-app", "amqp://test").Queue(queue)
+			},
+			setupChannel: func() AMQPChannel {
+				mockCh := NewMockAMQPChannel()
+				// Mock will fail on first QueueDeclare call (DLQ queue)
+				mockCh.SetQueueDeclareError(NewBunMQError("dlq queue declare failed"))
+				return mockCh
+			},
+			expectedError: NewBunMQError("dlq queue declare failed"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			topo := tt.setup()
+			channel := tt.setupChannel()
+
+			tp, ok := topo.(*topology)
+			if !ok {
+				t.Fatal("failed to cast Topology to *topology")
+			}
+
+			err := tp.DeclareQueues(channel)
+
+			if tt.expectedError != nil {
+				if err == nil {
+					t.Errorf("DeclareQueues() expected error %v, got nil", tt.expectedError)
+				} else if err.Error() != tt.expectedError.Error() {
+					t.Errorf("DeclareQueues() error = %v, expectedError %v", err, tt.expectedError)
+				}
+			} else if err != nil {
+				t.Errorf("DeclareQueues() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
+func TestTopology_DeclareQueues_ComplexScenarios(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func() Topology
+		validate func(t *testing.T, mockCh *MockAMQPChannel)
+	}{
+		{
+			name: "queue with DLQ max length",
+			setup: func() Topology {
+				queue := NewQueue("test-queue").WithDLQ().WithDLQMaxLength(1000)
+				return NewTopology("test-app", "amqp://test").Queue(queue)
+			},
+			validate: func(t *testing.T, mockCh *MockAMQPChannel) {
+				// Check DLQ was declared with max length
+				dlqArgs, ok := mockCh.declaredArgs["test-queue-dlq"]
+				if !ok {
+					t.Fatal("DLQ was not declared")
+				}
+				if maxLen, ok := dlqArgs["x-max-length"]; !ok {
+					t.Fatal("x-max-length missing for DLQ")
+				} else if maxLen != int64(1000) {
+					t.Fatalf("DLQ x-max-length = %v, want 1000", maxLen)
+				}
+			},
+		},
+		{
+			name: "queue with max length",
+			setup: func() Topology {
+				queue := NewQueue("test-queue").WithMaxLength(500)
+				return NewTopology("test-app", "amqp://test").Queue(queue)
+			},
+			validate: func(t *testing.T, mockCh *MockAMQPChannel) {
+				// Check main queue was declared with max length
+				args, ok := mockCh.declaredArgs["test-queue"]
+				if !ok {
+					t.Fatal("Main queue was not declared")
+				}
+				if maxLen, ok := args["x-max-length"]; !ok {
+					t.Fatal("x-max-length missing for main queue")
+				} else if maxLen != int64(500) {
+					t.Fatalf("Main queue x-max-length = %v, want 500", maxLen)
+				}
+			},
+		},
+		{
+			name: "queue with both DLQ and retry",
+			setup: func() Topology {
+				queue := NewQueue("test-queue").WithDLQ().WithRetry(60*time.Second, 5)
+				return NewTopology("test-app", "amqp://test").Queue(queue)
+			},
+			validate: func(t *testing.T, mockCh *MockAMQPChannel) {
+				// Check all three queues were declared
+				_, ok := mockCh.declaredArgs["test-queue"]
+				if !ok {
+					t.Fatal("Main queue was not declared")
+				}
+
+				retryArgs, ok := mockCh.declaredArgs["test-queue-retry"]
+				if !ok {
+					t.Fatal("Retry queue was not declared")
+				}
+
+				dlqArgs, ok := mockCh.declaredArgs["test-queue-dlq"]
+				if !ok {
+					t.Fatal("DLQ was not declared")
+				} // Validate retry queue properties
+				if ttl, ok := retryArgs["x-message-ttl"]; !ok {
+					t.Fatal("x-message-ttl missing for retry queue")
+				} else if ttl != int64(60000) { // 60 seconds in milliseconds
+					t.Fatalf("Retry queue x-message-ttl = %v, want 60000", ttl)
+				}
+
+				if retryCount, ok := retryArgs["x-retry-count"]; !ok {
+					t.Fatal("x-retry-count missing for retry queue")
+				} else if retryCount != int64(5) {
+					t.Fatalf("Retry queue x-retry-count = %v (type %T), want int64(5)", retryCount, retryCount)
+				}
+
+				// Validate DLQ routing
+				if dlx, ok := dlqArgs["x-dead-letter-exchange"]; !ok {
+					t.Fatal("x-dead-letter-exchange missing for DLQ")
+				} else if dlx != "" {
+					t.Fatalf("DLQ x-dead-letter-exchange = %v, want empty string", dlx)
+				}
+
+				if dlrk, ok := dlqArgs["x-dead-letter-routing-key"]; !ok {
+					t.Fatal("x-dead-letter-routing-key missing for DLQ")
+				} else if dlrk != "test-queue-retry" {
+					t.Fatalf("DLQ x-dead-letter-routing-key = %v, want test-queue-retry", dlrk)
+				}
+
+				// Validate all have queue type
+				for queueName, args := range mockCh.declaredArgs {
+					if qt, ok := args["x-queue-type"]; !ok {
+						t.Fatalf("x-queue-type missing for queue %s", queueName)
+					} else if qt != "classic" {
+						t.Fatalf("Queue %s x-queue-type = %v, want classic", queueName, qt)
+					}
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			topo := tt.setup()
+			mockCh := NewMockAMQPChannel()
+
+			tp, ok := topo.(*topology)
+			if !ok {
+				t.Fatal("failed to cast Topology to *topology")
+			}
+
+			err := tp.DeclareQueues(mockCh)
+			if err != nil {
+				t.Fatalf("DeclareQueues() unexpected error = %v", err)
+			}
+
+			tt.validate(t, mockCh)
+		})
+	}
+}
