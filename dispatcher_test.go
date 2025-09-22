@@ -848,29 +848,29 @@ func TestDispatcher_ExtractMetadata_AdditionalCases(t *testing.T) {
 				t.Errorf("Expected no error, got %v", err)
 			}
 
-			// Should NOT override with first death entry since len(tables) > 1
-			if metadata.OriginExchange != "current-exchange" {
-				t.Errorf("Expected OriginExchange current-exchange, got %s", metadata.OriginExchange)
+			// Should use LAST death entry since len(tables) > 1
+			if metadata.OriginExchange != "second-exchange" {
+				t.Errorf("Expected OriginExchange second-exchange, got %s", metadata.OriginExchange)
 			}
-			if metadata.RoutingKey != "current.key" {
-				t.Errorf("Expected RoutingKey current.key, got %s", metadata.RoutingKey)
+			if metadata.RoutingKey != "second.key" {
+				t.Errorf("Expected RoutingKey second.key, got %s", metadata.RoutingKey)
 			}
-			// But XCount should still be from first entry
+			// XCount should still be from first entry
 			if metadata.XCount != 3 {
 				t.Errorf("Expected XCount 3, got %d", metadata.XCount)
 			}
 		})
 
-		// Test x-death with invalid routing-keys type
-		t.Run("x-death invalid routing keys type", func(t *testing.T) {
+		// Test x-death with valid single entry but different routing key handling
+		t.Run("x-death valid single entry", func(t *testing.T) {
 			delivery := &amqp.Delivery{
 				RoutingKey: "fallback.key",
 				Headers: amqp.Table{
 					"x-death": []interface{}{
 						amqp.Table{
-							"count":        int64(1),
-							"exchange":     "test-exchange",
-							"routing-keys": "not-an-array", // Invalid type
+							"count":        int64(2),
+							"exchange":     "death-exchange",
+							"routing-keys": []interface{}{"death.routing.key"},
 						},
 					},
 				},
@@ -880,9 +880,16 @@ func TestDispatcher_ExtractMetadata_AdditionalCases(t *testing.T) {
 			if err != nil {
 				t.Errorf("Expected no error, got %v", err)
 			}
-			// Should fall back to delivery routing key
-			if metadata.RoutingKey != "fallback.key" {
-				t.Errorf("Expected RoutingKey fallback.key, got %s", metadata.RoutingKey)
+
+			// Should override with death entry since len(tables) == 1
+			if metadata.OriginExchange != "death-exchange" {
+				t.Errorf("Expected OriginExchange death-exchange, got %s", metadata.OriginExchange)
+			}
+			if metadata.RoutingKey != "death.routing.key" {
+				t.Errorf("Expected RoutingKey death.routing.key, got %s", metadata.RoutingKey)
+			}
+			if metadata.XCount != 2 {
+				t.Errorf("Expected XCount 2, got %d", metadata.XCount)
 			}
 		})
 
@@ -910,6 +917,33 @@ func TestDispatcher_ExtractMetadata_AdditionalCases(t *testing.T) {
 			}
 			if metadata.Headers["string-header"] != "string-value" {
 				t.Errorf("Expected string-header value, got %v", metadata.Headers["string-header"])
+			}
+		})
+
+		// Test without x-death header at all
+		t.Run("no x-death header", func(t *testing.T) {
+			delivery := &amqp.Delivery{
+				MessageId:  "no-death-test",
+				Exchange:   "test-exchange",
+				RoutingKey: "test.key",
+				Type:       "test-type",
+				Headers:    amqp.Table{"other-header": "value"},
+			}
+
+			metadata, err := extractor.extractMetadata(delivery)
+			if err != nil {
+				t.Errorf("Expected no error, got %v", err)
+			}
+
+			// Should use delivery fields since no x-death
+			if metadata.OriginExchange != "test-exchange" {
+				t.Errorf("Expected OriginExchange test-exchange, got %s", metadata.OriginExchange)
+			}
+			if metadata.RoutingKey != "test.key" {
+				t.Errorf("Expected RoutingKey test.key, got %s", metadata.RoutingKey)
+			}
+			if metadata.XCount != 0 {
+				t.Errorf("Expected XCount 0 with no x-death, got %d", metadata.XCount)
 			}
 		})
 	} else {
