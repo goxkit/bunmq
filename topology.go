@@ -158,7 +158,7 @@ func (t *topology) Apply() (ConnectionManager, error) {
 		return nil, err
 	}
 
-	if err := t.declareAndBindings(ch); err != nil {
+	if err := t.DeclareAndBindings(ch); err != nil {
 		logrus.WithError(err).Error("bunmq failure to declare topology")
 		return nil, err
 	}

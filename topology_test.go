@@ -316,9 +316,8 @@ func TestTopology_DeclareQueues_QueueType(t *testing.T) {
 	}
 
 	mockCh := NewMockAMQPChannel()
-	tp.channel = mockCh
 
-	if err := tp.declareQueues(); err != nil {
+	if err := tp.DeclareQueues(mockCh); err != nil {
 		t.Fatalf("declareQueues() returned error: %v", err)
 	}
 
@@ -362,9 +361,8 @@ func TestTopology_DeclareQueues_DLQRoutingKey(t *testing.T) {
 	}
 
 	mockCh := NewMockAMQPChannel()
-	tp.channel = mockCh
 
-	if err := tp.declareQueues(); err != nil {
+	if err := tp.DeclareQueues(mockCh); err != nil {
 		t.Fatalf("declareQueues() returned error: %v", err)
 	}
 

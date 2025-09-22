@@ -34,6 +34,7 @@ type (
 		// SetReconnectCallback sets a callback function that's called when reconnection occurs
 		SetReconnectCallback(callback func(conn RMQConnection, ch AMQPChannel))
 
+		// SetTopology sets the topology for the connection manager
 		SetTopology(t Topology)
 	}
 
