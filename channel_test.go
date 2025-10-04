@@ -28,6 +28,17 @@ type MockAMQPChannel struct {
 	notifyCancelChannels []chan string
 	// declaredArgs captures the args passed to QueueDeclare for tests
 	declaredArgs map[string]amqp.Table
+	// publishedMessages captures published messages for verification
+	publishedMessages []PublishedMessage
+}
+
+// PublishedMessage captures the details of a published message
+type PublishedMessage struct {
+	Exchange   string
+	Key        string
+	Mandatory  bool
+	Immediate  bool
+	Publishing amqp.Publishing
 }
 
 func NewMockAMQPChannel() *MockAMQPChannel {
@@ -41,6 +52,7 @@ func NewMockAMQPChannel() *MockAMQPChannel {
 		notifyCancelChannels: make([]chan string, 0),
 		queueDeclareQueue:    amqp.Queue{Name: "test-queue", Messages: 0, Consumers: 0},
 		consumeChannel:       deliveryChannel,
+		publishedMessages:    make([]PublishedMessage, 0),
 	}
 }
 
@@ -83,6 +95,14 @@ func (m *MockAMQPChannel) Consume(queue, consumer string, autoAck, exclusive, no
 }
 
 func (m *MockAMQPChannel) Publish(exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error {
+	// Capture published message for verification in tests
+	m.publishedMessages = append(m.publishedMessages, PublishedMessage{
+		Exchange:   exchange,
+		Key:        key,
+		Mandatory:  mandatory,
+		Immediate:  immediate,
+		Publishing: msg,
+	})
 	return m.publishError
 }
 
@@ -144,6 +164,24 @@ func (m *MockAMQPChannel) SetDeferredConfirmation(dc *amqp.DeferredConfirmation)
 
 func (m *MockAMQPChannel) SetPublishError(err error) {
 	m.publishError = err
+}
+
+// GetPublishedMessages returns all captured published messages
+func (m *MockAMQPChannel) GetPublishedMessages() []PublishedMessage {
+	return m.publishedMessages
+}
+
+// GetLastPublishedMessage returns the last published message, or nil if none
+func (m *MockAMQPChannel) GetLastPublishedMessage() *PublishedMessage {
+	if len(m.publishedMessages) == 0 {
+		return nil
+	}
+	return &m.publishedMessages[len(m.publishedMessages)-1]
+}
+
+// ClearPublishedMessages clears the published messages history
+func (m *MockAMQPChannel) ClearPublishedMessages() {
+	m.publishedMessages = make([]PublishedMessage, 0)
 }
 
 func (m *MockAMQPChannel) SetCloseError(err error) {

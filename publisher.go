@@ -125,7 +125,7 @@ func (p *publisher) PublishQueue(ctx context.Context, queue string, msg any, opt
 		return fmt.Errorf("queue cannot be empty")
 	}
 
-	return p.publish(ctx, "", queue, msg)
+	return p.publish(ctx, "", queue, msg, options...)
 }
 
 func (p *publisher) PublishQueueDeadline(ctx context.Context, queue string, msg any, options ...*Option) error {
@@ -189,13 +189,23 @@ func (p *publisher) optionsLookup(options ...*Option) (deliveryMode uint8, heade
 	headers = make(map[string]any)
 
 	for _, option := range options {
+		if option == nil {
+			continue
+		}
+
 		if option.Key == OptionDeliveryModeKey {
-			deliveryMode = option.Value.(uint8)
+			if dm, ok := option.Value.(DeliveryMode); ok {
+				deliveryMode = uint8(dm)
+			} else if dm, ok := option.Value.(uint8); ok {
+				deliveryMode = dm
+			}
 			continue
 		}
 
 		if option.Key == OptionHeadersKey {
-			headers = option.Value.(map[string]any)
+			if hdrs, ok := option.Value.(map[string]any); ok {
+				headers = hdrs
+			}
 		}
 	}
 
