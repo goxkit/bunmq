@@ -294,6 +294,16 @@ err := publisher.Publish(ctx, &exchange, nil, &routingKey, message)
 // Publish with deadline (1 second timeout)
 err = publisher.PublishDeadline(ctx, &exchange, nil, &routingKey, message)
 
+// Publish with options: persistent delivery mode and custom headers
+options := bunmq.PublisherOptions(
+    bunmq.DeliveryModePersistent, // Message survives broker restarts
+    map[string]any{
+        "source":          "order-service",
+    },
+)
+
+err = publisher.Publish(ctx, exchange, routingKey, message, options...)
+
 // The publisher will automatically use the reconnected channel if a reconnection occurs
 ```
 

@@ -313,9 +313,9 @@ func (d *dispatcher) ConsumeBlocking() {
 // consume starts consuming messages from a specific queue with automatic reconnection
 func (d *dispatcher) consume(queueDef *QueueDefinition) {
 	for {
-		// Check if we should stop consuming
 		d.mu.RLock()
 		if !d.consuming {
+			logrus.Warnf("bunmq stopping consumer for queue: %s", queueDef.name)
 			d.mu.RUnlock()
 			return
 		}
