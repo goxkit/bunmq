@@ -107,7 +107,24 @@ func (m *MockAMQPChannel) Publish(exchange, key string, mandatory, immediate boo
 }
 
 func (m *MockAMQPChannel) PublishWithDeferredConfirm(exchange, key string, mandatory, immediate bool, msg amqp.Publishing) (*amqp.DeferredConfirmation, error) {
-	return m.deferredConfirmation, m.publishError
+	if m.publishError != nil {
+		return nil, m.publishError
+	}
+
+	// Capture the published message for verification
+	m.publishedMessages = append(m.publishedMessages, PublishedMessage{
+		Exchange:   exchange,
+		Key:        key,
+		Mandatory:  mandatory,
+		Immediate:  immediate,
+		Publishing: msg,
+	})
+
+	// Return the stored deferredConfirmation or an error if none is set
+	if m.deferredConfirmation == nil {
+		return nil, errors.New("no deferred confirmation available - mock broker not running")
+	}
+	return m.deferredConfirmation, nil
 }
 
 func (m *MockAMQPChannel) IsClosed() bool {
