@@ -97,7 +97,7 @@ func (p *publisher) Publish(ctx context.Context, exchange, routingKey string, ms
 }
 
 // PublishDeadline publishes a message to a specified exchange with a deadline.
-// It's similar to Publish but with an added timeout of 1 second.
+// It's similar to Publish but with an added timeout of 5 second.
 // Parameters:
 //   - ctx: Context for tracing and cancellation
 //   - to: Pointer to the target exchange name (required)
@@ -113,10 +113,27 @@ func (p *publisher) PublishDeadline(ctx context.Context, exchange, routingKey st
 		return fmt.Errorf("exchange cannot be empty")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	return p.publish(ctx, exchange, routingKey, msg, options...)
+	confirm, err := p.publishDeferredConfirm(ctx, exchange, routingKey, msg, options...)
+	if err != nil {
+		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher publish with deferred confirm")
+		return err
+	}
+
+	ok, err := confirm.WaitContext(ctx)
+	if err != nil {
+		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher wait context")
+		return err
+	}
+
+	if !ok {
+		logrus.WithContext(ctx).Error("bunmq publisher publish with deferred confirm failed")
+		return fmt.Errorf("bunmq publisher publish with deferred confirm failed")
+	}
+
+	return nil
 }
 
 func (p *publisher) PublishQueue(ctx context.Context, queue string, msg any, options ...*Option) error {
@@ -149,39 +166,27 @@ func (p *publisher) publish(ctx context.Context, exchange, key string, msg any, 
 		return err
 	}
 
-	byt, err := json.Marshal(msg)
+	publishing, err := p.publishing(ctx, msg, options...)
 	if err != nil {
-		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher marshal")
 		return err
 	}
 
-	deliveryMode, headers := p.optionsLookup(options...)
-	AMQPPropagator.Inject(ctx, AMQPHeader(headers))
+	return ch.Publish(exchange, key, false, false, publishing)
+}
 
-	mID, err := uuid.NewV7()
+func (p *publisher) publishDeferredConfirm(ctx context.Context, exchange, key string, msg any, options ...*Option) (*amqp.DeferredConfirmation, error) {
+	ch, err := p.manager.GetChannel()
 	if err != nil {
-		mID = uuid.New()
+		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher get channel")
+		return nil, err
 	}
 
-	t := reflect.TypeOf(msg)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
+	publishing, err := p.publishing(ctx, msg, options...)
+	if err != nil {
+		return nil, err
 	}
 
-	msgType := t.Name()
-	if msgType == "" {
-		msgType = t.String()
-	}
-
-	return ch.Publish(exchange, key, false, false, amqp.Publishing{
-		Headers:      headers,
-		Type:         msgType,
-		ContentType:  JSONContentType,
-		MessageId:    mID.String(),
-		AppId:        p.appName,
-		DeliveryMode: deliveryMode,
-		Body:         byt,
-	})
+	return ch.PublishWithDeferredConfirm(exchange, key, false, false, publishing)
 }
 
 func (p *publisher) optionsLookup(options ...*Option) (deliveryMode uint8, headers map[string]any) {
@@ -210,4 +215,40 @@ func (p *publisher) optionsLookup(options ...*Option) (deliveryMode uint8, heade
 	}
 
 	return
+}
+
+func (p *publisher) publishing(ctx context.Context, msg any, options ...*Option) (amqp.Publishing, error) {
+	byt, err := json.Marshal(msg)
+	if err != nil {
+		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher marshal")
+		return amqp.Publishing{}, err
+	}
+
+	deliveryMode, headers := p.optionsLookup(options...)
+	AMQPPropagator.Inject(ctx, AMQPHeader(headers))
+
+	mID, err := uuid.NewV7()
+	if err != nil {
+		mID = uuid.New()
+	}
+
+	t := reflect.TypeOf(msg)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	msgType := t.Name()
+	if msgType == "" {
+		msgType = t.String()
+	}
+
+	return amqp.Publishing{
+		Headers:      headers,
+		Type:         msgType,
+		ContentType:  JSONContentType,
+		MessageId:    mID.String(),
+		AppId:        p.appName,
+		DeliveryMode: deliveryMode,
+		Body:         byt,
+	}, nil
 }
