@@ -515,9 +515,9 @@ func TestPublisher_Interface(t *testing.T) {
 	_ = pub.PublishQueueDeadline(ctx, "queue", msg)
 }
 
-func TestJsonContentType(t *testing.T) {
-	if JsonContentType != "application/json" {
-		t.Errorf("JsonContentType = %v, want application/json", JsonContentType)
+func TestJSONContentType(t *testing.T) {
+	if JSONContentType != "application/json" {
+		t.Errorf("JSONContentType = %v, want application/json", JSONContentType)
 	}
 }
 

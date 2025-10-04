@@ -5,6 +5,9 @@
 package bunmq
 
 import (
+	"fmt"
+	"time"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 )
@@ -77,6 +80,8 @@ type (
 		//   - msg: The message to publish
 		Publish(exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
 
+		PublishWithDeferredConfirm(exchange, key string, mandatory, immediate bool, msg amqp.Publishing) (*amqp.DeferredConfirmation, error)
+
 		// IsClosed checks if the channel is closed.
 		IsClosed() bool
 
@@ -98,7 +103,7 @@ type (
 var dial = func(appName, connectionString string) (RMQConnection, error) {
 	return amqp.DialConfig(connectionString, amqp.Config{
 		Properties: amqp.Table{
-			"connection_name": appName,
+			"connection_name": fmt.Sprintf("%d-%s", time.Now().Unix(), appName),
 		},
 	})
 }

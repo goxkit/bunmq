@@ -20,6 +20,7 @@ type MockAMQPChannel struct {
 	queueBindError       error
 	consumeError         error
 	consumeChannel       <-chan amqp.Delivery
+	deferredConfirmation *amqp.DeferredConfirmation
 	publishError         error
 	closed               bool
 	closeError           error
@@ -85,6 +86,10 @@ func (m *MockAMQPChannel) Publish(exchange, key string, mandatory, immediate boo
 	return m.publishError
 }
 
+func (m *MockAMQPChannel) PublishWithDeferredConfirm(exchange, key string, mandatory, immediate bool, msg amqp.Publishing) (*amqp.DeferredConfirmation, error) {
+	return m.deferredConfirmation, m.publishError
+}
+
 func (m *MockAMQPChannel) IsClosed() bool {
 	return m.closed
 }
@@ -131,6 +136,10 @@ func (m *MockAMQPChannel) SetConsumeError(err error) {
 
 func (m *MockAMQPChannel) SetConsumeChannel(ch <-chan amqp.Delivery) {
 	m.consumeChannel = ch
+}
+
+func (m *MockAMQPChannel) SetDeferredConfirmation(dc *amqp.DeferredConfirmation) {
+	m.deferredConfirmation = dc
 }
 
 func (m *MockAMQPChannel) SetPublishError(err error) {

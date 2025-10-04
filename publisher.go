@@ -60,9 +60,9 @@ type (
 	}
 )
 
-// JsonContentType is the MIME type used for JSON message content.
+// JSONContentType is the MIME type used for JSON message content.
 const (
-	JsonContentType = "application/json"
+	JSONContentType = "application/json"
 )
 
 // NewPublisher creates a new publisher instance with the provided configuration and AMQP channel.
@@ -93,7 +93,7 @@ func (p *publisher) Publish(ctx context.Context, exchange, routingKey string, ms
 		return fmt.Errorf("exchange cannot be empty")
 	}
 
-	return p.publish(ctx, exchange, routingKey, msg)
+	return p.publish(ctx, exchange, routingKey, msg, options...)
 }
 
 // PublishDeadline publishes a message to a specified exchange with a deadline.
@@ -116,7 +116,7 @@ func (p *publisher) PublishDeadline(ctx context.Context, exchange, routingKey st
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	return p.publish(ctx, exchange, routingKey, msg)
+	return p.publish(ctx, exchange, routingKey, msg, options...)
 }
 
 func (p *publisher) PublishQueue(ctx context.Context, queue string, msg any, options ...*Option) error {
@@ -137,25 +137,25 @@ func (p *publisher) PublishQueueDeadline(ctx context.Context, queue string, msg 
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	return p.publish(ctx, "", queue, msg)
+	return p.publish(ctx, "", queue, msg, options...)
 }
 
 // publish is the internal method that handles the details of publishing a message.
 // It marshals the message to JSON, sets headers for tracing, and publishes to RabbitMQ.
-func (p *publisher) publish(ctx context.Context, exchange, key string, msg any) error {
+func (p *publisher) publish(ctx context.Context, exchange, key string, msg any, options ...*Option) error {
 	ch, err := p.manager.GetChannel()
 	if err != nil {
-		logrus.WithContext(ctx).WithError(err).Error("publisher get channel")
+		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher get channel")
 		return err
 	}
 
 	byt, err := json.Marshal(msg)
 	if err != nil {
-		logrus.WithContext(ctx).WithError(err).Error("publisher marshal")
+		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher marshal")
 		return err
 	}
 
-	headers := amqp.Table{}
+	deliveryMode, headers := p.optionsLookup(options...)
 	AMQPPropagator.Inject(ctx, AMQPHeader(headers))
 
 	mID, err := uuid.NewV7()
@@ -174,11 +174,30 @@ func (p *publisher) publish(ctx context.Context, exchange, key string, msg any) 
 	}
 
 	return ch.Publish(exchange, key, false, false, amqp.Publishing{
-		Headers:     headers,
-		Type:        msgType,
-		ContentType: JsonContentType,
-		MessageId:   mID.String(),
-		AppId:       p.appName,
-		Body:        byt,
+		Headers:      headers,
+		Type:         msgType,
+		ContentType:  JSONContentType,
+		MessageId:    mID.String(),
+		AppId:        p.appName,
+		DeliveryMode: deliveryMode,
+		Body:         byt,
 	})
+}
+
+func (p *publisher) optionsLookup(options ...*Option) (deliveryMode uint8, headers map[string]any) {
+	deliveryMode = 0
+	headers = make(map[string]any)
+
+	for _, option := range options {
+		if option.Key == OptionDeliveryModeKey {
+			deliveryMode = option.Value.(uint8)
+			continue
+		}
+
+		if option.Key == OptionHeadersKey {
+			headers = option.Value.(map[string]any)
+		}
+	}
+
+	return
 }
