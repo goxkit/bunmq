@@ -384,12 +384,12 @@ func TestOptionKey_String(t *testing.T) {
 
 func TestDeliveryMode_Types(t *testing.T) {
 	// Test that DeliveryMode is properly typed as uint8
-	var transient DeliveryMode = DeliveryModeTransient
-	var persistent DeliveryMode = DeliveryModePersistent
+	transient := DeliveryModeTransient
+	persistent := DeliveryModePersistent
 
 	// These should compile without type conversion
-	var u1 uint8 = uint8(transient)
-	var u2 uint8 = uint8(persistent)
+	u1 := uint8(transient)
+	u2 := uint8(persistent)
 
 	if u1 != 1 {
 		t.Errorf("DeliveryModeTransient as uint8 = %d, want 1", u1)
