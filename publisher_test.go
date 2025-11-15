@@ -7,6 +7,7 @@ package bunmq
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -239,13 +240,13 @@ func TestPublisher_PublishDeadline(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "timeout waiting for confirmation",
+			name:        "successful publish with deadline",
 			exchange:    "test-exchange",
 			routingKey:  "test.key",
 			msg:         TestMessage{ID: "123", Content: "test"},
 			channelErr:  nil,
 			publishErr:  nil,
-			expectError: true, // Expect timeout error since no real broker confirmation
+			expectError: false,
 		},
 		{
 			name:        "empty exchange with deadline",
@@ -265,13 +266,21 @@ func TestPublisher_PublishDeadline(t *testing.T) {
 			publishErr:  nil,
 			expectError: true,
 		},
+		{
+			name:        "publish error with deadline",
+			exchange:    "test-exchange",
+			routingKey:  "test.key",
+			msg:         TestMessage{ID: "123", Content: "test"},
+			channelErr:  nil,
+			publishErr:  errors.New("publish error"),
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := NewMockConnectionManager()
 			channel := NewMockAMQPChannel()
-			// Don't set DeferredConfirmation - let it return nil to simulate missing broker confirmation
 
 			if tt.channelErr != nil {
 				manager.SetGetChannelError(tt.channelErr)
@@ -288,10 +297,6 @@ func TestPublisher_PublishDeadline(t *testing.T) {
 			if tt.expectError {
 				if err == nil {
 					t.Error("PublishDeadline() should return error")
-				}
-				// For the timeout case, check that we get a reasonable error message
-				if tt.name == "timeout waiting for confirmation" && err != nil {
-					t.Logf("PublishDeadline() correctly returned timeout/confirmation error: %v", err)
 				}
 			} else {
 				if err != nil {
@@ -543,11 +548,9 @@ func TestPublisher_TimeoutBehavior(t *testing.T) {
 		t.Errorf("PublishDeadline took too long: %v", duration)
 	}
 
-	// Expect error due to mock not having real broker confirmation
-	if err == nil {
-		t.Error("PublishDeadline should return error when no real confirmation available")
-	} else {
-		t.Logf("PublishDeadline correctly returned error: %v", err)
+	// Should succeed with the new implementation
+	if err != nil {
+		t.Errorf("PublishDeadline returned unexpected error: %v", err)
 	}
 }
 
@@ -707,13 +710,11 @@ func TestPublisher_PublishDeadlineWithOptions(t *testing.T) {
 		options...,
 	)
 
-	// Expect error due to mock not having real broker confirmation
-	if err == nil {
-		t.Error("PublishDeadline should return error when no real confirmation available")
+	// Should succeed with the new implementation
+	if err != nil {
+		t.Errorf("PublishDeadline returned unexpected error: %v", err)
 		return
 	}
-
-	t.Logf("PublishDeadline correctly returned error: %v", err)
 
 	// Verify the options were processed by checking the published message
 	publishedMsg := channel.GetLastPublishedMessage()
@@ -920,3 +921,240 @@ func TestPublisher_OptionsLookup(t *testing.T) {
 		})
 	}
 }
+
+func TestPublisher_PublishDeadline_ContextTimeout(t *testing.T) {
+// Test that PublishDeadline respects context timeout
+manager := NewMockConnectionManager()
+channel := NewMockAMQPChannel()
+manager.SetChannel(channel)
+
+publisher := NewPublisher("test-app", manager)
+
+// Create a context that is already cancelled
+ctx, cancel := context.WithCancel(context.Background())
+cancel()
+
+err := publisher.PublishDeadline(ctx, "test-exchange", "test.key", TestMessage{ID: "123", Content: "test"})
+
+if err == nil {
+t.Error("PublishDeadline() should return error when context is already cancelled")
+}
+
+if !errors.Is(err, context.Canceled) {
+t.Errorf("Expected context.Canceled error, got: %v", err)
+}
+}
+
+func TestPublisher_PublishDeadline_ContextDeadlineExceeded(t *testing.T) {
+// Test that PublishDeadline respects context deadline
+manager := NewMockConnectionManager()
+channel := NewMockAMQPChannel()
+manager.SetChannel(channel)
+
+publisher := NewPublisher("test-app", manager)
+
+// Create a context with a deadline that has already passed
+ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+defer cancel()
+
+err := publisher.PublishDeadline(ctx, "test-exchange", "test.key", TestMessage{ID: "123", Content: "test"})
+
+if err == nil {
+t.Error("PublishDeadline() should return error when context deadline has passed")
+}
+
+if !errors.Is(err, context.DeadlineExceeded) {
+t.Errorf("Expected context.DeadlineExceeded error, got: %v", err)
+}
+}
+
+func TestPublisher_PublishDeadline_DefaultTimeout(t *testing.T) {
+// Test that PublishDeadline adds a default 5-second timeout
+manager := NewMockConnectionManager()
+channel := NewMockAMQPChannel()
+manager.SetChannel(channel)
+
+publisher := NewPublisher("test-app", manager)
+
+// Use a context without a deadline
+ctx := context.Background()
+
+start := time.Now()
+err := publisher.PublishDeadline(ctx, "test-exchange", "test.key", TestMessage{ID: "123", Content: "test"})
+elapsed := time.Since(start)
+
+// Should succeed quickly (within 100ms) without waiting for full 5 seconds
+if err != nil {
+t.Errorf("PublishDeadline() returned unexpected error: %v", err)
+}
+
+if elapsed > 100*time.Millisecond {
+t.Errorf("PublishDeadline() took too long: %v, expected < 100ms", elapsed)
+}
+
+// Verify message was published
+publishedMsg := channel.GetLastPublishedMessage()
+if publishedMsg == nil {
+t.Error("No message was published")
+}
+}
+
+func TestPublisher_PublishDeadline_PreexistingDeadline(t *testing.T) {
+// Test that PublishDeadline respects a pre-existing context deadline
+manager := NewMockConnectionManager()
+channel := NewMockAMQPChannel()
+manager.SetChannel(channel)
+
+publisher := NewPublisher("test-app", manager)
+
+// Create a context with a 10-second deadline (longer than default 5 seconds)
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+
+err := publisher.PublishDeadline(ctx, "test-exchange", "test.key", TestMessage{ID: "123", Content: "test"})
+
+// Should succeed
+if err != nil {
+t.Errorf("PublishDeadline() returned unexpected error: %v", err)
+}
+
+// Verify message was published
+publishedMsg := channel.GetLastPublishedMessage()
+if publishedMsg == nil {
+t.Error("No message was published")
+}
+}
+
+func TestPublisher_PublishDeadline_EmptyRoutingKey(t *testing.T) {
+// Test that PublishDeadline works with empty routing key
+manager := NewMockConnectionManager()
+channel := NewMockAMQPChannel()
+manager.SetChannel(channel)
+
+publisher := NewPublisher("test-app", manager)
+
+err := publisher.PublishDeadline(context.Background(), "test-exchange", "", TestMessage{ID: "123", Content: "test"})
+
+// Should succeed
+if err != nil {
+t.Errorf("PublishDeadline() with empty routing key returned unexpected error: %v", err)
+}
+
+// Verify message was published with empty routing key
+publishedMsg := channel.GetLastPublishedMessage()
+if publishedMsg == nil {
+t.Error("No message was published")
+return
+}
+
+if publishedMsg.Key != "" {
+t.Errorf("Expected empty routing key, got: %v", publishedMsg.Key)
+}
+}
+
+func TestPublisher_PublishDeadline_MessageTypes(t *testing.T) {
+// Test PublishDeadline with various message types
+tests := []struct {
+name string
+msg  interface{}
+}{
+{
+name: "struct message",
+msg:  TestMessage{ID: "123", Content: "test"},
+},
+{
+name: "pointer to struct",
+msg:  &TestPointerMessage{Value: 42},
+},
+{
+name: "string message",
+msg:  "simple string",
+},
+{
+name: "map message",
+msg:  map[string]interface{}{"key": "value"},
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+manager := NewMockConnectionManager()
+channel := NewMockAMQPChannel()
+manager.SetChannel(channel)
+
+publisher := NewPublisher("test-app", manager)
+
+err := publisher.PublishDeadline(context.Background(), "test-exchange", "test.key", tt.msg)
+
+if err != nil {
+t.Errorf("PublishDeadline() returned unexpected error: %v", err)
+}
+
+// Verify message was published
+publishedMsg := channel.GetLastPublishedMessage()
+if publishedMsg == nil {
+t.Error("No message was published")
+}
+})
+}
+}
+
+func TestPublisher_PublishDeadline_MultiplePublishes(t *testing.T) {
+// Test multiple sequential publishes with deadline
+manager := NewMockConnectionManager()
+channel := NewMockAMQPChannel()
+manager.SetChannel(channel)
+
+publisher := NewPublisher("test-app", manager)
+
+// Publish 10 messages sequentially
+for i := 0; i < 10; i++ {
+err := publisher.PublishDeadline(
+context.Background(),
+"test-exchange",
+"test.key",
+TestMessage{ID: fmt.Sprintf("msg-%d", i), Content: fmt.Sprintf("test %d", i)},
+)
+
+if err != nil {
+t.Errorf("PublishDeadline() #%d returned unexpected error: %v", i, err)
+}
+}
+
+// Verify all messages were published
+messages := channel.GetPublishedMessages()
+if len(messages) != 10 {
+t.Errorf("Expected 10 messages, got %d", len(messages))
+}
+}
+
+func TestPublisher_PublishDeadline_WithTracingHeaders(t *testing.T) {
+// Test that PublishDeadline preserves tracing headers
+manager := NewMockConnectionManager()
+channel := NewMockAMQPChannel()
+manager.SetChannel(channel)
+
+publisher := NewPublisher("test-app", manager)
+
+// Create a context (tracing is automatically injected by the publisher)
+ctx := context.Background()
+
+err := publisher.PublishDeadline(ctx, "test-exchange", "test.key", TestMessage{ID: "123", Content: "test"})
+
+if err != nil {
+t.Errorf("PublishDeadline() returned unexpected error: %v", err)
+}
+
+// Verify message was published with headers
+publishedMsg := channel.GetLastPublishedMessage()
+if publishedMsg == nil {
+t.Error("No message was published")
+return
+}
+
+// Headers should exist (even if empty, the map is created)
+if publishedMsg.Publishing.Headers == nil {
+t.Error("Expected headers map to be initialized")
+}
+}
+

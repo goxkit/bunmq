@@ -97,12 +97,12 @@ func (p *publisher) Publish(ctx context.Context, exchange, routingKey string, ms
 }
 
 // PublishDeadline publishes a message to a specified exchange with a deadline.
-// It's similar to Publish but with an added timeout of 5 second.
+// This method ensures that the message is sent within the context's deadline
+// by adding a 5-second timeout if no deadline is already set.
 // Parameters:
 //   - ctx: Context for tracing and cancellation
-//   - to: Pointer to the target exchange name (required)
-//   - from: Pointer to source identifier (optional, not used)
-//   - key: Pointer to routing key (optional)
+//   - exchange: The target exchange name (required)
+//   - routingKey: Routing key (optional)
 //   - msg: The message to publish (will be marshaled to JSON)
 //   - options: Additional publishing options (optional)
 //
@@ -113,24 +113,25 @@ func (p *publisher) PublishDeadline(ctx context.Context, exchange, routingKey st
 		return fmt.Errorf("exchange cannot be empty")
 	}
 
+	// Add a 5-second timeout to the context if no deadline is already set
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	confirm, err := p.publishDeferredConfirm(ctx, exchange, routingKey, msg, options...)
-	if err != nil {
-		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher publish with deferred confirm")
-		return err
+	// Check if context is already cancelled or expired before attempting to publish
+	select {
+	case <-ctx.Done():
+		err := ctx.Err()
+		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher context deadline exceeded before publish")
+		return fmt.Errorf("publish deadline exceeded: %w", err)
+	default:
+		// Context is still valid, proceed with publish
 	}
 
-	ok, err := confirm.WaitContext(ctx)
+	// Use the standard publish method with the deadline-aware context
+	err := p.publish(ctx, exchange, routingKey, msg, options...)
 	if err != nil {
-		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher wait context")
+		logrus.WithContext(ctx).WithError(err).Error("bunmq publisher publish with deadline")
 		return err
-	}
-
-	if !ok {
-		logrus.WithContext(ctx).Error("bunmq publisher publish with deferred confirm failed")
-		return fmt.Errorf("bunmq publisher publish with deferred confirm failed")
 	}
 
 	return nil
