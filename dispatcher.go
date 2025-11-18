@@ -384,7 +384,8 @@ func (d *dispatcher) processReceivedMessage(queueDef *QueueDefinition, received 
 
 	ctx, span := NewConsumerSpan(d.tracer, received.Headers, received.Type)
 
-	ptr := def.reflect.Interface()
+	// Create a fresh instance for each message to avoid carrying over values from previous messages
+	ptr := reflect.New(def.reflect.Elem().Type()).Interface()
 	if err = json.Unmarshal(received.Body, ptr); err != nil {
 		span.RecordError(err)
 		logrus.
