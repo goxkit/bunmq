@@ -102,6 +102,7 @@ func TestNewDirectExchange(t *testing.T) {
 			exchange := NewDirectExchange(tt.exchangeName)
 			if exchange == nil {
 				t.Fatal("NewDirectExchange() returned nil")
+				return
 			}
 			if exchange.name != tt.expected.name {
 				t.Errorf("NewDirectExchange().name = %v, want %v", exchange.name, tt.expected.name)
@@ -152,6 +153,7 @@ func TestNewFanoutExchange(t *testing.T) {
 			exchange := NewFanoutExchange(tt.exchangeName)
 			if exchange == nil {
 				t.Fatal("NewFanoutExchange() returned nil")
+				return
 			}
 			if exchange.name != tt.expected.name {
 				t.Errorf("NewFanoutExchange().name = %v, want %v", exchange.name, tt.expected.name)
@@ -352,7 +354,7 @@ func TestExchangeDefinition_Params(t *testing.T) {
 			if result != exchange {
 				t.Error("Params() should return the same ExchangeDefinition instance")
 			}
-			
+
 			if tt.params == nil && exchange.params != nil {
 				t.Error("Params(nil) should set params to nil")
 			} else if tt.params != nil {
@@ -424,6 +426,7 @@ func TestDefaultExchange(t *testing.T) {
 			exchange := defaultExchange(tt.exchangeName, tt.kind)
 			if exchange == nil {
 				t.Fatal("defaultExchange() returned nil")
+				return
 			}
 			if exchange.name != tt.exchangeName {
 				t.Errorf("defaultExchange().name = %v, want %v", exchange.name, tt.exchangeName)

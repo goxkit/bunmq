@@ -118,11 +118,7 @@ func TestNewPublisher(t *testing.T) {
 		t.Fatal("NewPublisher() returned nil")
 	}
 
-	// Verify it implements the Publisher interface
-	pub := publisher
-	if pub == nil {
-		t.Error("Publisher is nil")
-	}
+	// NewPublisher returns Publisher interface, so type check is implicit
 }
 
 func TestPublisher_Publish_SimpleCase(t *testing.T) {

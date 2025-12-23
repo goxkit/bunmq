@@ -65,6 +65,7 @@ func TestNewBunMQError(t *testing.T) {
 			err := NewBunMQError(tt.message)
 			if err == nil {
 				t.Fatal("NewBunMQError() returned nil")
+				return
 			}
 			if err.Message != tt.expected {
 				t.Errorf("NewBunMQError().Message = %v, want %v", err.Message, tt.expected)

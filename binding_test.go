@@ -11,7 +11,8 @@ import (
 func TestNewExchangeBiding(t *testing.T) {
 	binding := NewExchangeBiding()
 	if binding == nil {
-		t.Fatal("NewExchangeBiding() returned nil")
+		t.Error("NewExchangeBiding() returned nil")
+		return
 	}
 
 	// Test zero values
@@ -33,6 +34,7 @@ func TestNewQueueBinding(t *testing.T) {
 	binding := NewQueueBinding()
 	if binding == nil {
 		t.Fatal("NewQueueBinding() returned nil")
+		return
 	}
 
 	// Test zero values

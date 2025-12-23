@@ -39,12 +39,6 @@ func TestNewTopology(t *testing.T) {
 				t.Fatal("NewTopology() returned nil")
 			}
 
-			// Verify it implements the Topology interface
-			top := topology
-			if top == nil {
-				t.Error("NewTopology() does not implement Topology interface")
-			}
-
 			// Test that basic operations work
 			queues := topology.GetQueuesDefinition()
 			if queues == nil {
