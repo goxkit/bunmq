@@ -65,10 +65,7 @@ func TestNewDispatcher(t *testing.T) {
 			}
 
 			// Verify dispatcher interface is properly implemented
-			dpt := dispatcher
-			if dpt == nil {
-				t.Fatal("Dispatcher interface is not implemented")
-			}
+			_ = dispatcher
 		})
 	}
 }

@@ -37,6 +37,7 @@ func TestNewQueue(t *testing.T) {
 			q := NewQueue(tt.queueName)
 			if q == nil {
 				t.Fatal("NewQueue() returned nil")
+				return
 			}
 			if q.name != tt.expectedName {
 				t.Errorf("NewQueue().name = %v, want %v", q.name, tt.expectedName)
