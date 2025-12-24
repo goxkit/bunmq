@@ -11,4 +11,5 @@ comment:
   behavior: default
 ignore:
   - examples
+  - mocks.go
   - .github
