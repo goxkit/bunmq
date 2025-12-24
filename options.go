@@ -24,7 +24,7 @@ const (
 	OptionHeadersKey      OptionKey = "Headers"
 )
 
-func NewOption() *OptionsBuilder {
+func NewOptions() *OptionsBuilder {
 	return &OptionsBuilder{options: []*Option{}}
 }
 

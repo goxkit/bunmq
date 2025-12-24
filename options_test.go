@@ -159,7 +159,7 @@ func TestOptionKeyConstants(t *testing.T) {
 }
 
 func TestOptionPersistentDeliveryMode(t *testing.T) {
-	options := NewOption().WithDeliveryMode(amqp091.Persistent).Build()
+	options := NewOptions().WithDeliveryMode(amqp091.Persistent).Build()
 
 	if len(options) != 1 {
 		t.Errorf("NewOption().WithDeliveryMode(amqp091.Persistent).Build() returned %d options, want 1", len(options))
@@ -176,7 +176,7 @@ func TestOptionPersistentDeliveryMode(t *testing.T) {
 }
 
 func TestOptionTransientDeliveryMode(t *testing.T) {
-	options := NewOption().WithDeliveryMode(amqp091.Transient).Build()
+	options := NewOptions().WithDeliveryMode(amqp091.Transient).Build()
 
 	if len(options) != 1 {
 		t.Errorf("NewOption().WithDeliveryMode(amqp091.Transient).Build() returned %d options, want 1", len(options))
@@ -227,7 +227,7 @@ func TestOptionHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			options := NewOption().WithHeaders(tt.headers).Build()
+			options := NewOptions().WithHeaders(tt.headers).Build()
 
 			if len(options) != 1 {
 				t.Errorf("NewOption().WithHeaders(tt.headers).Build() returned %d options, want 1", len(options))
@@ -293,7 +293,7 @@ func TestPublisherOptions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			options := NewOption().WithDeliveryMode(tt.deliveryMode).WithHeaders(tt.headers).Build()
+			options := NewOptions().WithDeliveryMode(tt.deliveryMode).WithHeaders(tt.headers).Build()
 
 			if len(options) != 2 {
 				t.Errorf("NewOption().WithDeliveryMode(tt.deliveryMode).WithHeaders(tt.headers).Build() returned %d options, want 2", len(options))
