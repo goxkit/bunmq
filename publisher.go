@@ -199,9 +199,7 @@ func (p *publisher) optionsLookup(options ...*Option) (deliveryMode uint8, heade
 		}
 
 		if option.Key == OptionDeliveryModeKey {
-			if dm, ok := option.Value.(DeliveryMode); ok {
-				deliveryMode = uint8(dm)
-			} else if dm, ok := option.Value.(uint8); ok {
+			if dm, ok := option.Value.(uint8); ok {
 				deliveryMode = dm
 			}
 			continue

@@ -4,6 +4,8 @@
 
 package bunmq
 
+import "github.com/rabbitmq/amqp091-go"
+
 type (
 	OptionKey string
 
@@ -12,32 +14,45 @@ type (
 		Value any
 	}
 
-	DeliveryMode uint8
+	OptionsBuilder struct {
+		options []*Option
+	}
 )
 
 const (
 	OptionDeliveryModeKey OptionKey = "DeliveryMode"
 	OptionHeadersKey      OptionKey = "Headers"
-
-	DeliveryModeTransient  DeliveryMode = 1
-	DeliveryModePersistent DeliveryMode = 2
 )
 
-func OptionPersistentDeliveryMode() []*Option {
-	return []*Option{{Key: OptionDeliveryModeKey, Value: DeliveryModePersistent}}
+func NewOption() *OptionsBuilder {
+	return &OptionsBuilder{options: []*Option{}}
 }
 
-func OptionTransientDeliveryMode() []*Option {
-	return []*Option{{Key: OptionDeliveryModeKey, Value: DeliveryModeTransient}}
+func (b *OptionsBuilder) WithOption(option *Option) *OptionsBuilder {
+	b.options = append(b.options, option)
+	return b
 }
 
-func OptionHeaders(headers map[string]any) []*Option {
-	return []*Option{{Key: OptionHeadersKey, Value: headers}}
+func (b *OptionsBuilder) WithDeliveryMode(deliveryMode uint8) *OptionsBuilder {
+	b.options = append(b.options, &Option{Key: OptionDeliveryModeKey, Value: deliveryMode})
+	return b
 }
 
-func PublisherOptions(deliveryMode DeliveryMode, headers map[string]any) []*Option {
-	return []*Option{
-		{Key: OptionDeliveryModeKey, Value: deliveryMode},
-		{Key: OptionHeadersKey, Value: headers},
-	}
+func (b *OptionsBuilder) WithDeliveryModeTransient() *OptionsBuilder {
+	b.options = append(b.options, &Option{Key: OptionDeliveryModeKey, Value: amqp091.Transient})
+	return b
+}
+
+func (b *OptionsBuilder) WithDeliveryModePersistent() *OptionsBuilder {
+	b.options = append(b.options, &Option{Key: OptionDeliveryModeKey, Value: amqp091.Persistent})
+	return b
+}
+
+func (b *OptionsBuilder) WithHeaders(headers map[string]any) *OptionsBuilder {
+	b.options = append(b.options, &Option{Key: OptionHeadersKey, Value: headers})
+	return b
+}
+
+func (b *OptionsBuilder) Build() []*Option {
+	return b.options
 }

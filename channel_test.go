@@ -224,6 +224,10 @@ func (m *MockAMQPChannel) TriggerCancel(consumer string) {
 	}
 }
 
+func (m *MockAMQPChannel) Qos(prefetchCount, prefetchSize int, global bool) error {
+	return nil
+}
+
 func TestAMQPChannel_Interface(t *testing.T) {
 	// Test that MockAMQPChannel implements AMQPChannel interface
 	var channel AMQPChannel = NewMockAMQPChannel()

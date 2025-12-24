@@ -6,6 +6,8 @@ package bunmq
 
 import (
 	"testing"
+
+	"github.com/rabbitmq/amqp091-go"
 )
 
 func TestOption(t *testing.T) {
@@ -105,17 +107,17 @@ func TestOption_ZeroValue(t *testing.T) {
 func TestDeliveryModeConstants(t *testing.T) {
 	tests := []struct {
 		name     string
-		mode     DeliveryMode
+		mode     uint8
 		expected uint8
 	}{
 		{
 			name:     "transient delivery mode",
-			mode:     DeliveryModeTransient,
+			mode:     amqp091.Transient,
 			expected: 1,
 		},
 		{
 			name:     "persistent delivery mode",
-			mode:     DeliveryModePersistent,
+			mode:     amqp091.Persistent,
 			expected: 2,
 		},
 	}
@@ -157,10 +159,10 @@ func TestOptionKeyConstants(t *testing.T) {
 }
 
 func TestOptionPersistentDeliveryMode(t *testing.T) {
-	options := OptionPersistentDeliveryMode()
+	options := NewOption().WithDeliveryMode(amqp091.Persistent).Build()
 
 	if len(options) != 1 {
-		t.Errorf("OptionPersistentDeliveryMode() returned %d options, want 1", len(options))
+		t.Errorf("NewOption().WithDeliveryMode(amqp091.Persistent).Build() returned %d options, want 1", len(options))
 		return
 	}
 
@@ -168,16 +170,16 @@ func TestOptionPersistentDeliveryMode(t *testing.T) {
 	if option.Key != OptionDeliveryModeKey {
 		t.Errorf("Option.Key = %v, want %v", option.Key, OptionDeliveryModeKey)
 	}
-	if option.Value != DeliveryModePersistent {
-		t.Errorf("Option.Value = %v, want %v", option.Value, DeliveryModePersistent)
+	if option.Value != amqp091.Persistent {
+		t.Errorf("Option.Value = %v, want %v", option.Value, amqp091.Persistent)
 	}
 }
 
 func TestOptionTransientDeliveryMode(t *testing.T) {
-	options := OptionTransientDeliveryMode()
+	options := NewOption().WithDeliveryMode(amqp091.Transient).Build()
 
 	if len(options) != 1 {
-		t.Errorf("OptionTransientDeliveryMode() returned %d options, want 1", len(options))
+		t.Errorf("NewOption().WithDeliveryMode(amqp091.Transient).Build() returned %d options, want 1", len(options))
 		return
 	}
 
@@ -185,8 +187,8 @@ func TestOptionTransientDeliveryMode(t *testing.T) {
 	if option.Key != OptionDeliveryModeKey {
 		t.Errorf("Option.Key = %v, want %v", option.Key, OptionDeliveryModeKey)
 	}
-	if option.Value != DeliveryModeTransient {
-		t.Errorf("Option.Value = %v, want %v", option.Value, DeliveryModeTransient)
+	if option.Value != amqp091.Transient {
+		t.Errorf("Option.Value = %v, want %v", option.Value, amqp091.Transient)
 	}
 }
 
@@ -225,10 +227,10 @@ func TestOptionHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			options := OptionHeaders(tt.headers)
+			options := NewOption().WithHeaders(tt.headers).Build()
 
 			if len(options) != 1 {
-				t.Errorf("OptionHeaders() returned %d options, want 1", len(options))
+				t.Errorf("NewOption().WithHeaders(tt.headers).Build() returned %d options, want 1", len(options))
 				return
 			}
 
@@ -266,17 +268,17 @@ func TestOptionHeaders(t *testing.T) {
 func TestPublisherOptions(t *testing.T) {
 	tests := []struct {
 		name         string
-		deliveryMode DeliveryMode
+		deliveryMode uint8
 		headers      map[string]any
 	}{
 		{
 			name:         "transient mode with empty headers",
-			deliveryMode: DeliveryModeTransient,
+			deliveryMode: amqp091.Transient,
 			headers:      map[string]any{},
 		},
 		{
 			name:         "persistent mode with headers",
-			deliveryMode: DeliveryModePersistent,
+			deliveryMode: amqp091.Persistent,
 			headers: map[string]any{
 				"content-type": "application/json",
 				"priority":     5,
@@ -284,17 +286,17 @@ func TestPublisherOptions(t *testing.T) {
 		},
 		{
 			name:         "transient mode with nil headers",
-			deliveryMode: DeliveryModeTransient,
+			deliveryMode: amqp091.Transient,
 			headers:      nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			options := PublisherOptions(tt.deliveryMode, tt.headers)
+			options := NewOption().WithDeliveryMode(tt.deliveryMode).WithHeaders(tt.headers).Build()
 
 			if len(options) != 2 {
-				t.Errorf("PublisherOptions() returned %d options, want 2", len(options))
+				t.Errorf("NewOption().WithDeliveryMode(tt.deliveryMode).WithHeaders(tt.headers).Build() returned %d options, want 2", len(options))
 				return
 			}
 
@@ -384,8 +386,8 @@ func TestOptionKey_String(t *testing.T) {
 
 func TestDeliveryMode_Types(t *testing.T) {
 	// Test that DeliveryMode is properly typed as uint8
-	transient := DeliveryModeTransient
-	persistent := DeliveryModePersistent
+	transient := amqp091.Transient
+	persistent := amqp091.Persistent
 
 	// These should compile without type conversion
 	u1 := uint8(transient)

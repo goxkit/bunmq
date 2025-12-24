@@ -36,6 +36,43 @@ type (
 
 		// SetTopology sets the topology for the connection manager
 		SetTopology(t Topology)
+
+		/*
+			Qos controls how many messages or how many bytes the server will try to keep on
+			the network for consumers before receiving delivery acks.  The intent of Qos is
+			to make sure the network buffers stay full between the server and client.
+
+			With a prefetch count greater than zero, the server will deliver that many
+			messages to consumers before acknowledgments are received.  The server ignores
+			this option when consumers are started with noAck because no acknowledgments
+			are expected or sent.
+
+			With a prefetch size greater than zero, the server will try to keep at least
+			that many bytes of deliveries flushed to the network before receiving
+			acknowledgments from the consumers.  This option is ignored when consumers are
+			started with noAck.
+
+			When global is true, these Qos settings apply to all existing and future
+			consumers on all channels on the same connection.  When false, the Channel.Qos
+			settings will apply to all existing and future consumers on this channel.
+
+			Please see the RabbitMQ Consumer Prefetch documentation for an explanation of
+			how the global flag is implemented in RabbitMQ, as it differs from the
+			AMQP 0.9.1 specification in that global Qos settings are limited in scope to
+			channels, not connections (https://www.rabbitmq.com/consumer-prefetch.html).
+
+			To get round-robin behavior between consumers consuming from the same queue on
+			different connections, set the prefetch count to 1, and the next available
+			message on the server will be delivered to the next available consumer.
+
+			If your consumer work time is reasonably consistent and not much greater
+			than two times your network round trip time, you will see significant
+			throughput improvements starting with a prefetch count of 2 or slightly
+			greater as described by benchmarks on RabbitMQ.
+
+			http://www.rabbitmq.com/blog/2012/04/25/rabbitmq-performance-measurements-part-2/
+		*/
+		Qos(prefetchCount, prefetchSize int, global bool) error
 	}
 
 	// connectionManager implements ConnectionManager with automatic reconnection capabilities
@@ -414,4 +451,19 @@ func (cm *connectionManager) Close() error {
 
 	logrus.Info("bunmq connection manager closed")
 	return err
+}
+
+func (cm *connectionManager) Qos(prefetchCount, prefetchSize int, global bool) error {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if cm.closed {
+		return NewBunMQError("connection manager is closed")
+	}
+
+	if cm.ch == nil || cm.ch.IsClosed() {
+		return NewBunMQError("channel is not available")
+	}
+
+	return cm.ch.Qos(prefetchCount, prefetchSize, global)
 }

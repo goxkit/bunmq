@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/rabbitmq/amqp091-go"
 )
 
 // MockConnectionManager is a mock implementation of ConnectionManager interface for testing
@@ -97,6 +99,10 @@ func (m *MockConnectionManager) SetGetChannelError(err error) {
 
 func (m *MockConnectionManager) SetCloseError(err error) {
 	m.closeErr = err
+}
+
+func (m *MockConnectionManager) Qos(prefetchCount, prefetchSize int, global bool) error {
+	return nil
 }
 
 // Test message types
@@ -562,47 +568,41 @@ func TestPublisher_PublishWithOptions(t *testing.T) {
 		},
 		{
 			name:         "persistent delivery mode only",
-			options:      OptionPersistentDeliveryMode(),
-			expectedDM:   uint8(DeliveryModePersistent),
+			options:      NewOption().WithDeliveryMode(amqp091.Persistent).Build(),
+			expectedDM:   amqp091.Persistent,
 			expectedHdrs: map[string]any{},
 		},
 		{
 			name:         "transient delivery mode only",
-			options:      OptionTransientDeliveryMode(),
-			expectedDM:   uint8(DeliveryModeTransient),
+			options:      NewOption().WithDeliveryMode(amqp091.Transient).Build(),
+			expectedDM:   amqp091.Transient,
 			expectedHdrs: map[string]any{},
 		},
 		{
 			name:         "headers only",
-			options:      OptionHeaders(map[string]any{"priority": 5, "source": "test"}),
+			options:      NewOption().WithHeaders(map[string]any{"priority": 5, "source": "test"}).Build(),
 			expectedDM:   0, // default
 			expectedHdrs: map[string]any{"priority": 5, "source": "test"},
 		},
 		{
 			name: "both delivery mode and headers",
 			options: append(
-				OptionPersistentDeliveryMode(),
-				OptionHeaders(map[string]any{"content-type": "application/xml", "retry-count": 3})...,
+				NewOption().WithDeliveryMode(amqp091.Persistent).Build(),
+				NewOption().WithHeaders(map[string]any{"content-type": "application/xml", "retry-count": 3}).Build()...,
 			),
-			expectedDM:   uint8(DeliveryModePersistent),
+			expectedDM:   amqp091.Persistent,
 			expectedHdrs: map[string]any{"content-type": "application/xml", "retry-count": 3},
 		},
 		{
-			name: "publisher options helper",
-			options: PublisherOptions(
-				DeliveryModeTransient,
-				map[string]any{"correlation-id": "abc123", "message-version": 2},
-			),
-			expectedDM:   uint8(DeliveryModeTransient),
+			name:         "publisher options helper",
+			options:      NewOption().WithDeliveryMode(amqp091.Transient).WithHeaders(map[string]any{"correlation-id": "abc123", "message-version": 2}).Build(),
+			expectedDM:   amqp091.Transient,
 			expectedHdrs: map[string]any{"correlation-id": "abc123", "message-version": 2},
 		},
 		{
-			name: "empty headers map",
-			options: append(
-				OptionTransientDeliveryMode(),
-				OptionHeaders(map[string]any{})...,
-			),
-			expectedDM:   uint8(DeliveryModeTransient),
+			name:         "empty headers map",
+			options:      NewOption().WithDeliveryMode(amqp091.Transient).WithHeaders(map[string]any{}).Build(),
+			expectedDM:   amqp091.Transient,
 			expectedHdrs: map[string]any{},
 		},
 	}
@@ -690,10 +690,7 @@ func TestPublisher_PublishDeadlineWithOptions(t *testing.T) {
 	publisher := NewPublisher("test-app", manager)
 
 	// Test with options
-	options := PublisherOptions(
-		DeliveryModePersistent,
-		map[string]any{"priority": 10, "retry-enabled": true},
-	)
+	options := NewOption().WithDeliveryMode(amqp091.Persistent).WithHeaders(map[string]any{"priority": 10, "retry-enabled": true}).Build()
 
 	err := publisher.PublishDeadline(
 		context.Background(),
@@ -718,8 +715,8 @@ func TestPublisher_PublishDeadlineWithOptions(t *testing.T) {
 		return
 	}
 
-	if publishedMsg.Publishing.DeliveryMode != uint8(DeliveryModePersistent) {
-		t.Errorf("DeliveryMode = %d, want %d", publishedMsg.Publishing.DeliveryMode, uint8(DeliveryModePersistent))
+	if publishedMsg.Publishing.DeliveryMode != amqp091.Persistent {
+		t.Errorf("DeliveryMode = %d, want %d", publishedMsg.Publishing.DeliveryMode, amqp091.Persistent)
 	}
 
 	if priority, exists := publishedMsg.Publishing.Headers["priority"]; !exists || priority != 10 {
@@ -740,8 +737,8 @@ func TestPublisher_PublishQueueWithOptions(t *testing.T) {
 
 	// Test queue publishing with options
 	options := append(
-		OptionTransientDeliveryMode(),
-		OptionHeaders(map[string]any{"queue-specific": "value", "timestamp": 1234567890})...,
+		NewOption().WithDeliveryMode(amqp091.Transient).Build(),
+		NewOption().WithHeaders(map[string]any{"queue-specific": "value", "timestamp": 1234567890}).Build()...,
 	)
 
 	err := publisher.PublishQueue(
@@ -771,8 +768,8 @@ func TestPublisher_PublishQueueWithOptions(t *testing.T) {
 		t.Errorf("Key = %v, want test-queue", publishedMsg.Key)
 	}
 
-	if publishedMsg.Publishing.DeliveryMode != uint8(DeliveryModeTransient) {
-		t.Errorf("DeliveryMode = %d, want %d", publishedMsg.Publishing.DeliveryMode, uint8(DeliveryModeTransient))
+	if publishedMsg.Publishing.DeliveryMode != amqp091.Transient {
+		t.Errorf("DeliveryMode = %d, want %d", publishedMsg.Publishing.DeliveryMode, amqp091.Transient)
 	}
 
 	if queueSpecific, exists := publishedMsg.Publishing.Headers["queue-specific"]; !exists || queueSpecific != "value" {
@@ -788,10 +785,7 @@ func TestPublisher_PublishQueueDeadlineWithOptions(t *testing.T) {
 	publisher := NewPublisher("test-app", manager)
 
 	// Test queue deadline publishing with options
-	options := PublisherOptions(
-		DeliveryModePersistent,
-		map[string]any{"deadline-queue": true, "timeout": "1s"},
-	)
+	options := NewOption().WithDeliveryMode(amqp091.Persistent).WithHeaders(map[string]any{"deadline-queue": true, "timeout": "1s"}).Build()
 
 	err := publisher.PublishQueueDeadline(
 		context.Background(),
@@ -820,8 +814,8 @@ func TestPublisher_PublishQueueDeadlineWithOptions(t *testing.T) {
 		t.Errorf("Key = %v, want deadline-queue", publishedMsg.Key)
 	}
 
-	if publishedMsg.Publishing.DeliveryMode != uint8(DeliveryModePersistent) {
-		t.Errorf("DeliveryMode = %d, want %d", publishedMsg.Publishing.DeliveryMode, uint8(DeliveryModePersistent))
+	if publishedMsg.Publishing.DeliveryMode != amqp091.Persistent {
+		t.Errorf("DeliveryMode = %d, want %d", publishedMsg.Publishing.DeliveryMode, amqp091.Persistent)
 	}
 
 	if deadlineQueue, exists := publishedMsg.Publishing.Headers["deadline-queue"]; !exists || deadlineQueue != true {
@@ -852,22 +846,22 @@ func TestPublisher_OptionsLookup(t *testing.T) {
 		{
 			name: "multiple options with same type - last wins",
 			options: []*Option{
-				{Key: OptionDeliveryModeKey, Value: DeliveryModeTransient},
+				{Key: OptionDeliveryModeKey, Value: amqp091.Transient},
 				{Key: OptionHeadersKey, Value: map[string]any{"first": "headers"}},
-				{Key: OptionDeliveryModeKey, Value: DeliveryModePersistent},         // This should win
+				{Key: OptionDeliveryModeKey, Value: amqp091.Persistent},             // This should win
 				{Key: OptionHeadersKey, Value: map[string]any{"second": "headers"}}, // This should win
 			},
-			expectedDelivery:   uint8(DeliveryModePersistent),
+			expectedDelivery:   amqp091.Persistent,
 			expectedHeaderKeys: []string{"second"},
 		},
 		{
 			name: "unknown option keys are ignored",
 			options: []*Option{
 				{Key: OptionKey("unknown-key"), Value: "unknown-value"},
-				{Key: OptionDeliveryModeKey, Value: DeliveryModeTransient},
+				{Key: OptionDeliveryModeKey, Value: amqp091.Transient},
 				{Key: OptionKey("another-unknown"), Value: 42},
 			},
-			expectedDelivery:   uint8(DeliveryModeTransient),
+			expectedDelivery:   amqp091.Transient,
 			expectedHeaderKeys: []string{},
 		},
 	}

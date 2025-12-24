@@ -27,3 +27,5 @@ coverage.html
 coverage.out
 examples/example
 bin
+# Snyk Security Extension - AI Rules (auto-generated)
+.cursor/rules/snyk_rules.mdc
