@@ -26,6 +26,7 @@ type MockAMQPChannel struct {
 	consumeChannel       <-chan amqp.Delivery
 	deferredConfirmation *amqp.DeferredConfirmation
 	publishError         error
+	qosError             error
 	closed               bool
 	closeError           error
 	notifyCloseChannels  []chan *amqp.Error
@@ -229,7 +230,11 @@ func (m *MockAMQPChannel) TriggerCancel(consumer string) {
 }
 
 func (m *MockAMQPChannel) Qos(prefetchCount, prefetchSize int, global bool) error {
-	return nil
+	return m.qosError
+}
+
+func (m *MockAMQPChannel) SetQosError(err error) {
+	m.qosError = err
 }
 
 // =============================================================================
