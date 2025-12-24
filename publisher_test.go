@@ -13,98 +13,6 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
-// MockConnectionManager is a mock implementation of ConnectionManager interface for testing
-type MockConnectionManager struct {
-	connection        RMQConnection
-	channel           AMQPChannel
-	connectionString  string
-	closed            bool
-	healthy           bool
-	getConnectionErr  error
-	getChannelErr     error
-	closeErr          error
-	reconnectCallback func(RMQConnection, AMQPChannel)
-	topology          *topology
-}
-
-func NewMockConnectionManager() *MockConnectionManager {
-	return &MockConnectionManager{
-		connection:       NewMockRMQConnection(),
-		channel:          NewMockAMQPChannel(),
-		connectionString: "amqp://test",
-		closed:           false,
-		healthy:          true,
-	}
-}
-
-func (m *MockConnectionManager) GetConnection() (RMQConnection, error) {
-	if m.getConnectionErr != nil {
-		return nil, m.getConnectionErr
-	}
-	return m.connection, nil
-}
-
-func (m *MockConnectionManager) GetChannel() (AMQPChannel, error) {
-	if m.getChannelErr != nil {
-		return nil, m.getChannelErr
-	}
-	return m.channel, nil
-}
-
-func (m *MockConnectionManager) GetConnectionString() string {
-	return m.connectionString
-}
-
-func (m *MockConnectionManager) Close() error {
-	m.closed = true
-	return m.closeErr
-}
-
-func (m *MockConnectionManager) IsHealthy() bool {
-	return m.healthy
-}
-
-func (m *MockConnectionManager) SetReconnectCallback(callback func(conn RMQConnection, ch AMQPChannel)) {
-	m.reconnectCallback = callback
-}
-
-func (m *MockConnectionManager) SetTopology(t Topology) {
-	m.topology = t.(*topology)
-}
-
-// Helper methods for testing
-func (m *MockConnectionManager) SetConnection(conn RMQConnection) {
-	m.connection = conn
-}
-
-func (m *MockConnectionManager) SetChannel(ch AMQPChannel) {
-	m.channel = ch
-}
-
-func (m *MockConnectionManager) SetConnectionString(cs string) {
-	m.connectionString = cs
-}
-
-func (m *MockConnectionManager) SetHealthy(healthy bool) {
-	m.healthy = healthy
-}
-
-func (m *MockConnectionManager) SetGetConnectionError(err error) {
-	m.getConnectionErr = err
-}
-
-func (m *MockConnectionManager) SetGetChannelError(err error) {
-	m.getChannelErr = err
-}
-
-func (m *MockConnectionManager) SetCloseError(err error) {
-	m.closeErr = err
-}
-
-func (m *MockConnectionManager) Qos(prefetchCount, prefetchSize int, global bool) error {
-	return nil
-}
-
 // Test message types
 type TestMessage struct {
 	ID      string `json:"id"`
@@ -568,40 +476,40 @@ func TestPublisher_PublishWithOptions(t *testing.T) {
 		},
 		{
 			name:         "persistent delivery mode only",
-			options:      NewOption().WithDeliveryMode(amqp091.Persistent).Build(),
+			options:      NewOptions().WithDeliveryMode(amqp091.Persistent).Build(),
 			expectedDM:   amqp091.Persistent,
 			expectedHdrs: map[string]any{},
 		},
 		{
 			name:         "transient delivery mode only",
-			options:      NewOption().WithDeliveryMode(amqp091.Transient).Build(),
+			options:      NewOptions().WithDeliveryMode(amqp091.Transient).Build(),
 			expectedDM:   amqp091.Transient,
 			expectedHdrs: map[string]any{},
 		},
 		{
 			name:         "headers only",
-			options:      NewOption().WithHeaders(map[string]any{"priority": 5, "source": "test"}).Build(),
+			options:      NewOptions().WithHeaders(map[string]any{"priority": 5, "source": "test"}).Build(),
 			expectedDM:   0, // default
 			expectedHdrs: map[string]any{"priority": 5, "source": "test"},
 		},
 		{
 			name: "both delivery mode and headers",
 			options: append(
-				NewOption().WithDeliveryMode(amqp091.Persistent).Build(),
-				NewOption().WithHeaders(map[string]any{"content-type": "application/xml", "retry-count": 3}).Build()...,
+				NewOptions().WithDeliveryMode(amqp091.Persistent).Build(),
+				NewOptions().WithHeaders(map[string]any{"content-type": "application/xml", "retry-count": 3}).Build()...,
 			),
 			expectedDM:   amqp091.Persistent,
 			expectedHdrs: map[string]any{"content-type": "application/xml", "retry-count": 3},
 		},
 		{
 			name:         "publisher options helper",
-			options:      NewOption().WithDeliveryMode(amqp091.Transient).WithHeaders(map[string]any{"correlation-id": "abc123", "message-version": 2}).Build(),
+			options:      NewOptions().WithDeliveryMode(amqp091.Transient).WithHeaders(map[string]any{"correlation-id": "abc123", "message-version": 2}).Build(),
 			expectedDM:   amqp091.Transient,
 			expectedHdrs: map[string]any{"correlation-id": "abc123", "message-version": 2},
 		},
 		{
 			name:         "empty headers map",
-			options:      NewOption().WithDeliveryMode(amqp091.Transient).WithHeaders(map[string]any{}).Build(),
+			options:      NewOptions().WithDeliveryMode(amqp091.Transient).WithHeaders(map[string]any{}).Build(),
 			expectedDM:   amqp091.Transient,
 			expectedHdrs: map[string]any{},
 		},
@@ -690,7 +598,7 @@ func TestPublisher_PublishDeadlineWithOptions(t *testing.T) {
 	publisher := NewPublisher("test-app", manager)
 
 	// Test with options
-	options := NewOption().WithDeliveryMode(amqp091.Persistent).WithHeaders(map[string]any{"priority": 10, "retry-enabled": true}).Build()
+	options := NewOptions().WithDeliveryMode(amqp091.Persistent).WithHeaders(map[string]any{"priority": 10, "retry-enabled": true}).Build()
 
 	err := publisher.PublishDeadline(
 		context.Background(),
@@ -737,8 +645,8 @@ func TestPublisher_PublishQueueWithOptions(t *testing.T) {
 
 	// Test queue publishing with options
 	options := append(
-		NewOption().WithDeliveryMode(amqp091.Transient).Build(),
-		NewOption().WithHeaders(map[string]any{"queue-specific": "value", "timestamp": 1234567890}).Build()...,
+		NewOptions().WithDeliveryMode(amqp091.Transient).Build(),
+		NewOptions().WithHeaders(map[string]any{"queue-specific": "value", "timestamp": 1234567890}).Build()...,
 	)
 
 	err := publisher.PublishQueue(
@@ -785,7 +693,7 @@ func TestPublisher_PublishQueueDeadlineWithOptions(t *testing.T) {
 	publisher := NewPublisher("test-app", manager)
 
 	// Test queue deadline publishing with options
-	options := NewOption().WithDeliveryMode(amqp091.Persistent).WithHeaders(map[string]any{"deadline-queue": true, "timeout": "1s"}).Build()
+	options := NewOptions().WithDeliveryMode(amqp091.Persistent).WithHeaders(map[string]any{"deadline-queue": true, "timeout": "1s"}).Build()
 
 	err := publisher.PublishQueueDeadline(
 		context.Background(),

@@ -375,33 +375,6 @@ func TestDispatcher_MetadataExtractionAdvanced(t *testing.T) {
 	}
 }
 
-// Mock acknowledger for testing
-type mockAcknowledger struct {
-	ackFunc  func(multiple bool) error
-	nackFunc func(multiple, requeue bool) error
-}
-
-func (m *mockAcknowledger) Ack(tag uint64, multiple bool) error {
-	if m.ackFunc != nil {
-		return m.ackFunc(multiple)
-	}
-	return nil
-}
-
-func (m *mockAcknowledger) Nack(tag uint64, multiple, requeue bool) error {
-	if m.nackFunc != nil {
-		return m.nackFunc(multiple, requeue)
-	}
-	return nil
-}
-
-func (m *mockAcknowledger) Reject(tag uint64, requeue bool) error {
-	if m.nackFunc != nil {
-		return m.nackFunc(false, requeue)
-	}
-	return nil
-}
-
 func TestDispatcher_ConsumeBlocking_Setup(t *testing.T) {
 	// Test dispatcher setup without actually calling ConsumeBlocking
 	manager := NewMockConnectionManager()
@@ -466,7 +439,7 @@ func TestDispatcher_MessageProcessing(t *testing.T) {
 			Exchange:     "test-exchange",
 			RoutingKey:   "test.key",
 			Body:         msgData,
-			Acknowledger: &mockAcknowledger{},
+			Acknowledger: &MockAcknowledger{},
 		}
 
 		// Test message evaluation functionality
@@ -1406,7 +1379,7 @@ func TestDispatcher_Consume_MessageFlow(t *testing.T) {
 		Exchange:     "test-exchange",
 		RoutingKey:   "test.key",
 		Body:         msgData1,
-		Acknowledger: &mockAcknowledger{},
+		Acknowledger: &MockAcknowledger{},
 	}
 
 	deliveryChannel <- amqp.Delivery{
@@ -1415,7 +1388,7 @@ func TestDispatcher_Consume_MessageFlow(t *testing.T) {
 		Exchange:     "test-exchange",
 		RoutingKey:   "test.key",
 		Body:         msgData2,
-		Acknowledger: &mockAcknowledger{},
+		Acknowledger: &MockAcknowledger{},
 	}
 
 	close(deliveryChannel)

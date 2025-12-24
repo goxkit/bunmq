@@ -686,3 +686,104 @@ func TestDefaultReconnectionConfig(t *testing.T) {
 		t.Errorf("Expected BackoffFactor %f but got %f", expected.BackoffFactor, DefaultReconnectionConfig.BackoffFactor)
 	}
 }
+
+func TestConnectionManager_Qos(t *testing.T) {
+	tests := []struct {
+		name          string
+		setup         func(*connectionManager, *MockAMQPChannel)
+		prefetchCount int
+		prefetchSize  int
+		global        bool
+		expectError   bool
+		errorMsg      string
+	}{
+		{
+			name: "successful qos",
+			setup: func(cm *connectionManager, mockCh *MockAMQPChannel) {
+				// Channel is healthy by default
+			},
+			prefetchCount: 10,
+			prefetchSize:  0,
+			global:        false,
+			expectError:   false,
+		},
+		{
+			name: "connection manager closed",
+			setup: func(cm *connectionManager, mockCh *MockAMQPChannel) {
+				cm.closed = true
+			},
+			prefetchCount: 10,
+			prefetchSize:  0,
+			global:        false,
+			expectError:   true,
+			errorMsg:      "connection manager is closed",
+		},
+		{
+			name: "channel is closed",
+			setup: func(cm *connectionManager, mockCh *MockAMQPChannel) {
+				_ = mockCh.Close()
+			},
+			prefetchCount: 10,
+			prefetchSize:  0,
+			global:        false,
+			expectError:   true,
+			errorMsg:      "channel is not available",
+		},
+		{
+			name: "channel is nil",
+			setup: func(cm *connectionManager, mockCh *MockAMQPChannel) {
+				cm.ch = nil
+			},
+			prefetchCount: 10,
+			prefetchSize:  0,
+			global:        false,
+			expectError:   true,
+			errorMsg:      "channel is not available",
+		},
+		{
+			name: "channel qos returns error",
+			setup: func(cm *connectionManager, mockCh *MockAMQPChannel) {
+				mockCh.SetQosError(errors.New("qos failed"))
+			},
+			prefetchCount: 10,
+			prefetchSize:  0,
+			global:        false,
+			expectError:   true,
+			errorMsg:      "qos failed",
+		},
+		{
+			name: "qos with global flag",
+			setup: func(cm *connectionManager, mockCh *MockAMQPChannel) {
+				// Channel is healthy by default
+			},
+			prefetchCount: 1,
+			prefetchSize:  1024,
+			global:        true,
+			expectError:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cm, _, mockCh := createMockConnectionManager(t)
+			tt.setup(cm, mockCh)
+
+			err := cm.Qos(tt.prefetchCount, tt.prefetchSize, tt.global)
+
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				if tt.errorMsg != "" && err != nil {
+					if err.Error() != tt.errorMsg {
+						t.Errorf("Expected error message %q but got %q", tt.errorMsg, err.Error())
+					}
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error but got: %v", err)
+				}
+			}
+		})
+	}
+}
