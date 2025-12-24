@@ -101,6 +101,10 @@ func (m *MockConnectionManager) SetCloseError(err error) {
 	m.closeErr = err
 }
 
+func (m *MockConnectionManager) Qos(prefetchCount, prefetchSize int, global bool) error {
+	return nil
+}
+
 // Test message types
 type TestMessage struct {
 	ID      string `json:"id"`
