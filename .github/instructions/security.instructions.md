@@ -4,7 +4,7 @@ applyTo: "**/*"
 
 # Security Instructions
 
-> **Scope**: Applies to all Go files (`**/*.go`), dependency files (`go.mod`, `go.sum`), and container definitions (`Dockerfile`).
+> **Scope**: Applies to all Go files (`**/*.go`), dependency files (`go.mod`, `go.sum`), and library configuration.
 
 ## Rule: Dependency Security
 
@@ -16,7 +16,7 @@ applyTo: "**/*"
 - Use specific version constraints in `go.mod` (avoid `*` wildcards)
 - Prefer well-maintained packages with active security practices
 - Check for known CVEs before adding dependencies
-- Run `go mod audit` or equivalent security scanning
+- Run `make sec` for security scanning
 
 **Copilot MUST NOT**:
 - Add dependencies with known CVEs
@@ -30,9 +30,11 @@ Reference: `@go.mod`
 
 ```go
 require (
-	bitbucket.org/asapcard/go-acquirer-enums-core-lib v0.11.1 // ✅ Specific version
-	bitbucket.org/asappay/go-acquirer-messages-lib v1.0.60   // ✅ Specific version
-	github.com/go-chi/chi/v5 v5.2.3                          // ✅ Specific version
+    github.com/google/uuid v1.6.0            // ✅ Specific version
+    github.com/rabbitmq/amqp091-go v1.10.0   // ✅ Specific version, well-maintained
+    github.com/sirupsen/logrus v1.9.3        // ✅ Specific version
+    go.opentelemetry.io/otel v1.39.0         // ✅ Specific version
+    go.opentelemetry.io/otel/trace v1.39.0   // ✅ Specific version
 )
 ```
 
@@ -40,348 +42,601 @@ require (
 
 ```go
 require (
-	github.com/some/package v0.0.0-* // ❌ Wildcard, may include vulnerable versions
-	github.com/abandoned/package v1.0.0 // ❌ Abandoned package
+    github.com/some/package v0.0.0-*           // ❌ Wildcard, may include vulnerable versions
+    github.com/abandoned/package v1.0.0        // ❌ Abandoned package
+    github.com/streadway/amqp v1.0.0          // ❌ Deprecated, use amqp091-go instead
 )
 ```
 
 ---
 
-## Rule: Never Hardcode Secrets
+## Rule: Gosec Configuration
 
-**Description**: Never hardcode passwords, tokens, API keys, or any sensitive data.
+**Description**: Configure gosec for appropriate security scanning.
+
+**When it applies**: When setting up or modifying security scanning.
+
+**Copilot MUST**:
+- Use the gosec configuration in `.gosec.json`
+- Exclude vendor, mock, and test directories from security scans
+- Run `make sec` before committing code
+- Address all medium and high severity findings
+
+**Copilot MUST NOT**:
+- Ignore gosec warnings without justification
+- Commit code with security vulnerabilities
+- Disable security checks entirely
+
+**Example - Correct Gosec Configuration**:
+
+Reference: `@.gosec.json`
+
+```json
+{
+  "severity": "medium",
+  "confidence": "medium",
+  "exclude-dirs": [
+    "**/vendor/**",
+    "**/mock/**",
+    "**/mocks/**",
+    "**/testdata/**"
+  ],
+  "exclude": [
+  ]
+}
+```
+
+---
+
+## Rule: Never Hardcode Connection Strings or Secrets
+
+**Description**: Never hardcode RabbitMQ connection strings, passwords, tokens, or any sensitive data.
 
 **When it applies**: When generating any code that uses configuration or credentials.
 
 **Copilot MUST**:
-- Load secrets from environment variables
-- Use configuration management tools (ConfigTool) for sensitive data
-- Document required environment variables
-- Use remote configuration for customer-specific secrets
+- Accept connection strings as constructor parameters
+- Document required configuration
+- Use environment variables for sensitive data in examples
+- Never log connection strings or credentials
 
 **Copilot MUST NOT**:
 - Commit secrets to version control
 - Hardcode passwords, tokens, or API keys
-- Log secret values
+- Log secret values including connection strings
 - Store secrets in code comments
 
-**Example - Correct Secret Management**:
+**Example - Correct Connection String Handling**:
 
-Reference: `@cmd/container.go`
+Reference: `@connection_manager.go`
 
 ```go
-// ✅ Configuration from environment
-configs.LoadEnvironmentProps()
-
-// ✅ Remote configuration for sensitive data
-configTool, err := configTool.NewConfigTool()
-if err != nil {
-    return nil, err
+// ✅ Connection string passed as parameter, never hardcoded
+func NewConnectionManager(
+    ctx context.Context,
+    connectionString string,  // ✅ Passed in, not hardcoded
+    appName string,
+    options ...ConnectionManagerOption,
+) (ConnectionManager, error) {
+    // ✅ Store securely, don't log
+    cm := &connectionManager{
+        connectionString: connectionString,
+        appName:          appName,
+    }
+    return cm, nil
 }
+```
 
-// ✅ Customer-specific configuration
-customer, err := configs.GetCustomerFromConfigTool(ctx, configTool, authorizedMessage.ClientKey)
+Reference: `@examples/main.go`
+
+```go
+// ✅ Load from environment variable
+connectionString := os.Getenv("RABBITMQ_URL")
+if connectionString == "" {
+    log.Fatal("RABBITMQ_URL environment variable is required")
+}
 ```
 
 **Example - Incorrect Secret Management**:
 
 ```go
-// ❌ WRONG: Hardcoded secrets
-const dbPassword = "super_secret_123"
-const apiKey = "sk_live_1234567890"
+// ❌ WRONG: Hardcoded connection string
+const connectionString = "amqp://admin:password123@localhost:5672/"
 
-// ❌ WRONG: Secrets in code
-func connect() {
-    conn, _ := sql.Open("postgres", "user=admin password=secret123")
-}
+// ❌ WRONG: Logging connection string
+logrus.WithField("url", connectionString).Info("connecting")
+
+// ❌ WRONG: Secrets in code comments
+// Connection: amqp://user:secret@prod.rabbitmq.com:5672/
 ```
 
 ---
 
-## Rule: Input Validation
+## Rule: Input Validation for Messages
 
 **Description**: Always validate all external input before processing.
 
-**When it applies**: When generating code that receives external input (messages, HTTP requests, configuration).
+**When it applies**: When generating code that receives AMQP messages.
 
 **Copilot MUST**:
+- Validate message body is valid JSON
 - Validate message structure before processing
-- Use message's `Validate()` method when available
 - Reject invalid input early (fail fast)
-- Validate configuration values at startup
+- Use appropriate error types for validation failures
 
 **Copilot MUST NOT**:
 - Trust external input without validation
-- Process messages without validation
+- Process messages without unmarshaling validation
 - Skip validation for "performance"
 
 **Example - Correct Input Validation**:
 
-Reference: `@internal/transport/rmq/consumers/authorized.go`
+Reference: `@dispatcher.go`
 
 ```go
-func (c *authorizedConsumer) Handle(ctx context.Context, delivery *amqp091.Delivery) error {
-    var authorizedMessage authorizer.AuthorizedMessage
-    
-    // ✅ Validate unmarshaling
-    if err := json.Unmarshal(delivery.Body, &authorizedMessage); err != nil {
-        logrus.WithContext(ctx).Error("invalid message, expected authorizedMessage")
-        return errors.ErrFailedToUnmarshalJSON
+// ✅ Validate unmarshaling with proper error handling
+func (d *dispatcher) unmarshalDelivery(ctx context.Context, delivery *amqp.Delivery, msgType reflect.Type) (any, error) {
+    msg := reflect.New(msgType).Interface()
+
+    // ✅ Validate JSON unmarshaling
+    if err := json.Unmarshal(delivery.Body, msg); err != nil {
+        logrus.WithContext(ctx).
+            WithError(err).
+            WithField("body", string(delivery.Body)).
+            Error("failed to unmarshal message")
+        return nil, fmt.Errorf("failed to unmarshal message: %w", err)
     }
-    
-    // ✅ Validate message structure
-    err := authorizedMessage.Validate()
-    if err != nil {
-        logrus.WithContext(ctx).WithError(err).Errorf("invalid authorized message")
-        return errors.ErrUnformattedMessage
+
+    return msg, nil
+}
+```
+
+**Example - Validation in Handler**:
+
+```go
+// ✅ Handler with validation
+func MyHandler(ctx context.Context, msg any, metadata *bunmq.DeliveryMetadata) error {
+    orderMsg, ok := msg.(*OrderMessage)
+    if !ok {
+        return fmt.Errorf("unexpected message type: %T", msg)
     }
-    
-    // ✅ Validate customer configuration
-    customer, err := configs.GetCustomerFromConfigTool(ctx, c.configTool, authorizedMessage.ClientKey)
-    if err != nil {
-        logrus.WithContext(ctx).WithError(err).Error("failed to retrieve customer from config tool")
-        return errors.ErrConfigTools
+
+    // ✅ Validate required fields
+    if orderMsg.OrderID == "" {
+        logrus.WithContext(ctx).Error("order_id is required")
+        return errors.New("validation failed: order_id is required")
     }
-    
-    return c.authorizerService.Process(ctx, customer, &authorizedMessage)
+
+    return nil
 }
 ```
 
 ---
 
-## Rule: SQL Injection Prevention
+## Rule: Thread-Safe Resource Access
 
-**Description**: Always use parameterized queries or prepared statements.
+**Description**: Ensure concurrent-safe access to shared resources.
 
-**When it applies**: When generating database access code.
+**When it applies**: When generating code that manages shared state (connections, channels).
 
 **Copilot MUST**:
-- Use parameterized queries with placeholders (`$1`, `$2`, etc.)
-- Use database libraries that support parameterization
-- Validate input before using in queries
-- Use `QueryRowContext` or `ExecContext` with parameters
+- Use sync.Mutex or sync.RWMutex for shared state
+- Use RWMutex for read-heavy workloads
+- Lock only the minimum necessary scope
+- Always unlock in defer statements
 
 **Copilot MUST NOT**:
-- Concatenate user input into SQL queries
-- Use `fmt.Sprintf()` for SQL queries
-- Execute raw SQL with user-provided data
+- Access shared state without synchronization
+- Hold locks during I/O operations
+- Create potential deadlocks
+- Ignore race condition warnings
 
-**Example - Correct SQL Usage**:
+**Example - Correct Thread-Safe Access**:
 
-Reference: `@internal/repositories/events_repository.go`
+Reference: `@connection_manager.go`
 
 ```go
-// ✅ Parameterized query
-query := `
-    SELECT EXISTS(
-        SELECT 1
-        FROM asap_preagenda
-        WHERE nsu = $1
-        AND asap_mid = $2
-        AND asap_codigo_auth = $3
-        AND asap_datavenda = to_timestamp($4)
-        AND isactive = 'Y'
-    )`
+type connectionManager struct {
+    conn   RMQConnection
+    ch     AMQPChannel
+    mu     sync.RWMutex  // ✅ Protects conn and ch
+    closed bool
+}
 
-var exists bool
-err = db.QueryRowContext(ctx,
-    query,
-    nsu,                 // ✅ Parameter $1
-    mid,                 // ✅ Parameter $2
-    authCode,            // ✅ Parameter $3
-    authTransactionDate, // ✅ Parameter $4
-).Scan(&exists)
+// ✅ Read lock for checking state
+func (cm *connectionManager) IsHealthy() bool {
+    cm.mu.RLock()
+    defer cm.mu.RUnlock()
+
+    if cm.closed {
+        return false
+    }
+    return cm.conn != nil && !cm.conn.IsClosed() && cm.ch != nil
+}
+
+// ✅ Write lock for modifying state
+func (cm *connectionManager) reconnect() error {
+    cm.mu.Lock()
+    defer cm.mu.Unlock()
+
+    // Safe to modify cm.conn and cm.ch
+    // ...
+}
 ```
 
-**Example - Incorrect SQL Usage**:
+Reference: `@dispatcher.go`
 
 ```go
-// ❌ WRONG: String concatenation (SQL injection risk)
-query := fmt.Sprintf("SELECT * FROM transactions WHERE nsu = '%s' AND merchant_id = '%s'", nsu, merchantID)
-db.Query(query)
+// ✅ Mutex for consumer map
+type dispatcher struct {
+    consumers map[string]*consumerDefinition
+    mu        sync.RWMutex
+}
 
-// ❌ WRONG: Direct interpolation
-query := "SELECT * FROM transactions WHERE nsu = '" + nsu + "'"
+func (d *dispatcher) RegisterByType(queue string, typE any, handler ConsumerHandler) error {
+    d.mu.Lock()
+    defer d.mu.Unlock()
+
+    // Safe to modify d.consumers
+}
 ```
 
 ---
 
-## Rule: Error Information Leakage
+## Rule: Error Information Leakage Prevention
 
-**Description**: Never expose internal details, stack traces, or sensitive information in errors returned to external systems.
+**Description**: Never expose internal details or sensitive information in errors returned to external systems.
 
 **When it applies**: When generating error handling code.
 
 **Copilot MUST**:
 - Log detailed errors internally with full context
-- Return sanitized errors to external systems
-- Use error codes for support correlation
-- Hide internal paths or configuration details
+- Return domain-specific errors without internal details
+- Use predefined error types from errors.go
+- Never include connection strings in errors
 
 **Copilot MUST NOT**:
 - Expose stack traces externally
 - Reveal internal paths or configuration
-- Expose existence of resources through errors
+- Include connection details in error messages
 
 **Example - Correct Error Handling**:
 
-```go
-// Internal logging with full context
-logrus.WithContext(ctx).
-    WithError(err).
-    WithFields(logrus.Fields{
-        "nsu": msg.SystemTraceAuditNumber,
-        "merchant_id": msg.MerchantID,
-    }).
-    Error("failed to process transaction")
+Reference: `@errors.go`
 
-// External response - sanitized
-return errors.ErrProcessingFailed // ✅ Generic error, no internal details
+```go
+// ✅ Domain-specific error types without internal details
+var (
+    ErrConnectionClosed     = errors.New("connection is closed")
+    ErrChannelClosed        = errors.New("channel is closed")
+    ErrFailedToConnect      = errors.New("failed to connect to broker")
+    ErrReconnectFailed      = errors.New("reconnection attempts exhausted")
+    ErrQueueNotFound        = errors.New("queue definition not found")
+    ErrInvalidHandlerType   = errors.New("invalid handler type")
+    ErrConsumerAlreadyExists = errors.New("consumer already registered")
+)
+```
+
+Reference: `@connection_manager.go`
+
+```go
+// ✅ Log details internally, return generic error externally
+func (cm *connectionManager) reconnect() error {
+    // Internal logging with full context
+    logrus.WithContext(ctx).
+        WithError(err).
+        WithField("attempt", attempt).
+        Error("connection attempt failed")
+
+    // External return - no connection string exposed
+    return ErrReconnectFailed  // ✅ Generic, no internal details
+}
 ```
 
 **Example - Incorrect Error Handling**:
 
 ```go
-// ❌ WRONG: Exposing internal details
-return fmt.Errorf("database connection failed: %v, path: /var/lib/postgres/data, config: %+v", err, dbConfig)
+// ❌ WRONG: Exposing connection details
+return fmt.Errorf("failed to connect to %s: %v", connectionString, err)
 
-// ❌ WRONG: Stack trace in response
-return fmt.Errorf("error: %+v", err) // May include stack trace
+// ❌ WRONG: Internal path exposure
+return fmt.Errorf("config error at /etc/rabbitmq/config.json: %v", err)
 ```
 
 ---
 
-## Rule: Secure Configuration
+## Rule: No Panic in Library Code
 
-**Description**: Load configuration from environment variables, never hardcode.
+**Description**: Library code MUST NOT panic; always return errors.
 
-**When it applies**: When generating configuration or initialization code.
+**When it applies**: When generating any library code.
 
 **Copilot MUST**:
-- Load configuration from environment variables
-- Use secure configuration management for sensitive data
-- Validate configuration values at startup
-- Use default values only for non-sensitive settings
+- Return errors instead of panicking
+- Validate input and return descriptive errors
+- Use recover only in dispatcher for handler panics
+- Handle all error cases gracefully
 
 **Copilot MUST NOT**:
-- Hardcode configuration values
-- Store secrets in configuration files committed to version control
-- Use insecure defaults for production
+- Use panic for error handling
+- Allow panics to propagate to library users
+- Use panic for validation failures
 
-**Example - Correct Configuration**:
+**Example - Correct Error Handling (No Panic)**:
 
-Reference: `@cmd/container.go`
+Reference: `@publisher.go`
 
 ```go
-// ✅ Configuration from environment
-configs.LoadEnvironmentProps()
-logger.Init(configs.Config.GetString("ENVIRONMENT"), configs.Config.GetString("LOG_LEVEL"))
+// ✅ Return error, never panic
+func (p *publisher) Publish(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error {
+    if exchange == "" {
+        logrus.WithContext(ctx).Error("exchange cannot be empty")
+        return fmt.Errorf("exchange cannot be empty")  // ✅ Return error
+    }
+    return p.publish(ctx, exchange, routingKey, msg, options...)
+}
+```
 
-// ✅ Remote configuration for sensitive data
-configTool, err := configTool.NewConfigTool()
+Reference: `@dispatcher.go`
+
+```go
+// ✅ Recover from handler panics to protect library users
+func (d *dispatcher) handleDelivery(ctx context.Context, delivery *amqp.Delivery, def *consumerDefinition) {
+    defer func() {
+        if r := recover(); r != nil {
+            logrus.WithContext(ctx).
+                WithField("panic", r).
+                Error("handler panicked, message will be nacked")
+            _ = delivery.Nack(false, false)
+        }
+    }()
+
+    // ... handle delivery
+}
+```
+
+**Example - Incorrect Panic Usage**:
+
+```go
+// ❌ WRONG: Panic in library code
+func NewPublisher(conn ConnectionManager) Publisher {
+    if conn == nil {
+        panic("connection manager cannot be nil")  // ❌ Never panic
+    }
+}
+
+// ✅ CORRECT: Return error instead
+func NewPublisher(conn ConnectionManager) (Publisher, error) {
+    if conn == nil {
+        return nil, fmt.Errorf("connection manager cannot be nil")
+    }
+    return &publisher{conn: conn}, nil
+}
 ```
 
 ---
 
-## Rule: Container Security
+## Rule: Graceful Shutdown and Resource Cleanup
 
-**Description**: Follow container security best practices.
+**Description**: Always implement proper resource cleanup and graceful shutdown.
 
-**When it applies**: When generating Dockerfile or container-related code.
+**When it applies**: When generating code that manages connections, channels, or goroutines.
 
 **Copilot MUST**:
-- Use minimal base images
-- Run containers as non-root user (when possible)
-- Scan container images for vulnerabilities
-- Implement health checks
+- Use defer for resource cleanup
+- Handle shutdown signals (SIGTERM, SIGINT)
+- Close channels and connections in correct order
+- Cancel contexts to stop goroutines
 
 **Copilot MUST NOT**:
-- Use outdated base images
-- Expose unnecessary ports
-- Include secrets in container images
-- Run as root user unnecessarily
+- Leak goroutines
+- Leave connections open
+- Ignore shutdown signals
+- Create orphaned resources
 
-**Example - Correct Dockerfile**:
+**Example - Correct Graceful Shutdown**:
 
-Reference: `@Dockerfile`
+Reference: `@dispatcher.go`
 
-```dockerfile
-# ✅ Use specific base image version
-FROM golang:1.25.5-alpine AS builder
+```go
+// ✅ Handle shutdown signals
+func (d *dispatcher) Consume(ctx context.Context) error {
+    signalCh := make(chan os.Signal, 1)
+    signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
 
-# ✅ Build stage
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/main .
+    go func() {
+        select {
+        case <-ctx.Done():
+            return
+        case <-signalCh:
+            d.cancel()  // ✅ Cancel context to stop consumers
+        }
+    }()
 
-# ✅ Minimal runtime image
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/main .
-CMD ["./main", "events"]
+    // ...
+}
+```
+
+Reference: `@connection_manager.go`
+
+```go
+// ✅ Proper cleanup order
+func (cm *connectionManager) Close() error {
+    cm.mu.Lock()
+    defer cm.mu.Unlock()
+
+    cm.closed = true
+    cm.cancel()  // ✅ Cancel context first
+
+    // ✅ Close channel before connection
+    if cm.ch != nil {
+        _ = cm.ch.Close()
+    }
+
+    // ✅ Close connection last
+    if cm.conn != nil {
+        return cm.conn.Close()
+    }
+
+    return nil
+}
+```
+
+---
+
+## Rule: Secure Channel and Connection Handling
+
+**Description**: Ensure secure handling of AMQP channels and connections.
+
+**When it applies**: When generating code that manages RabbitMQ resources.
+
+**Copilot MUST**:
+- Use TLS connections in production (amqps://)
+- Validate connection health before operations
+- Implement automatic reconnection with backoff
+- Close resources in correct order (channel before connection)
+
+**Copilot MUST NOT**:
+- Use unencrypted connections in production
+- Ignore connection errors
+- Leave stale connections
+- Share channels across goroutines without synchronization
+
+**Example - Correct Connection Health Check**:
+
+Reference: `@connection_manager.go`
+
+```go
+// ✅ Validate connection before returning
+func (cm *connectionManager) GetConnection() (RMQConnection, error) {
+    cm.mu.RLock()
+    defer cm.mu.RUnlock()
+
+    if cm.closed {
+        return nil, ErrConnectionClosed
+    }
+
+    if cm.conn == nil || cm.conn.IsClosed() {
+        return nil, ErrConnectionClosed
+    }
+
+    return cm.conn, nil
+}
 ```
 
 ---
 
 ## Security Checklist
 
-When generating code, ensure:
+When generating bunmq code, ensure:
 
-- ✅ No hardcoded secrets
-- ✅ All input validated
-- ✅ SQL injection prevented (parameterized queries)
-- ✅ Path traversal prevented (validate file paths)
-- ✅ Errors sanitized (no internal details exposed)
-- ✅ Dependencies scanned for vulnerabilities
-- ✅ Configuration from environment variables
+- ✅ No hardcoded connection strings or secrets
+- ✅ All message input validated (JSON unmarshaling)
+- ✅ Thread-safe access to shared resources (sync.Mutex)
+- ✅ Errors sanitized (no connection strings exposed)
+- ✅ Dependencies scanned for vulnerabilities (`make sec`)
 - ✅ No sensitive data in logs
+- ✅ No panics in library code (return errors)
+- ✅ Graceful shutdown implemented
+- ✅ Resources cleaned up properly (defer)
+- ✅ Channel closed before connection
 
 ---
 
-## Rule: Path Traversal Prevention
+## Rule: Gosec Integration
 
-**Description**: Always validate file paths to prevent path traversal attacks.
+**Description**: Run gosec as part of the development workflow.
 
-**When it applies**: When generating code that handles file paths.
+**When it applies**: When developing or modifying code.
 
 **Copilot MUST**:
-- Use `filepath.Clean()` to normalize paths
-- Validate paths are within expected directories
-- Use `filepath.Join()` for path construction
-- Reject paths containing `..` after cleaning
+- Run `make sec` before committing
+- Fix all security findings
+- Use `make sec-report` for detailed reports
 
-**Copilot MUST NOT**:
-- Accept raw user input as file paths
-- Use string concatenation for paths
-- Trust file paths from external sources
+**Commands**:
 
-**Example - Correct Path Handling**:
+Reference: `@Makefile`
+
+```makefile
+# Run security scanner
+make sec
+
+# Generate security report
+make sec-report
+```
+
+---
+
+## Anti-Patterns (FORBIDDEN)
+
+**Copilot MUST NEVER generate**:
 
 ```go
-// ✅ Safe path construction
-func safePath(baseDir, fileName string) (string, error) {
-    cleanName := filepath.Clean(fileName)
-    fullPath := filepath.Join(baseDir, cleanName)
-    
-    // Ensure path is within base directory
-    if !strings.HasPrefix(fullPath, filepath.Clean(baseDir)+string(os.PathSeparator)) {
-        return "", fmt.Errorf("path traversal attempt detected")
-    }
-    
-    return fullPath, nil
+// ❌ Hardcoded connection string
+conn, _ := amqp.Dial("amqp://user:pass@localhost:5672/")
+
+// ❌ Logging connection string
+logrus.Info("connecting to " + connectionString)
+
+// ❌ Panic in library
+if ch == nil {
+    panic("channel is nil")
 }
+
+// ❌ Ignoring errors
+ch, _ := conn.Channel()
+
+// ❌ Unprotected shared state
+func (d *dispatcher) Register(queue string, h Handler) {
+    d.consumers[queue] = h  // ❌ No mutex protection
+}
+
+// ❌ Leaked goroutine
+go func() {
+    for msg := range msgs {
+        process(msg)
+    }
+}()  // ❌ No way to stop this goroutine
 ```
 
-**Example - Incorrect Path Handling**:
+---
+
+## Positive Security Patterns (REQUIRED)
+
+**Copilot MUST generate**:
 
 ```go
-// ❌ WRONG: Direct concatenation
-path := baseDir + "/" + userInput
+// ✅ Connection string from parameter
+func NewConnectionManager(ctx context.Context, connStr string, appName string) (ConnectionManager, error)
 
-// ❌ WRONG: No validation
-file, _ := os.Open(userInput)
+// ✅ Protected shared state
+cm.mu.Lock()
+defer cm.mu.Unlock()
+cm.consumers[queue] = handler
+
+// ✅ Error handling
+ch, err := conn.Channel()
+if err != nil {
+    return nil, fmt.Errorf("failed to open channel: %w", err)
+}
+
+// ✅ Resource cleanup
+defer func() {
+    if ch != nil {
+        _ = ch.Close()
+    }
+}()
+
+// ✅ Cancellable goroutine
+go func() {
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case msg := <-msgs:
+            process(msg)
+        }
+    }
+}()
 ```
-- ✅ Container security best practices followed

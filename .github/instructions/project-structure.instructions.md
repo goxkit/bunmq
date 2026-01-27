@@ -11,220 +11,195 @@ applyTo: "**/*"
 **When it applies**: When creating new files or organizing code.
 
 **Copilot MUST**:
-- Place application entry points in `cmd/`
-- Place private application code in `internal/` with proper layer separation
-- Place public library code in `pkg/`
-- Place generated mocks in `mocks/`
-- Place test data in `data/`
+- Place all library code in the root directory (flat structure)
+- Place example code in `examples/`
+- Place test files alongside source files with `_test.go` suffix
 - Follow the exact directory structure defined below
 
 **Copilot MUST NOT**:
-- Create files outside the defined structure
-- Mix layers (e.g., business logic in transport layer)
-- Place internal code in `pkg/`
-- Place business logic in `cmd/`
+- Create unnecessary subdirectories
+- Create `internal/` or `pkg/` directories (this is a library, not an application)
+- Mix test files with non-test concerns
+- Create separate test directories
 
 **Directory Structure (MANDATORY)**:
 
 ```
-go-clearing-mc-inc-ms/
-├── cmd/                    # Application entry points
-│   ├── cmd.go             # Cobra command definitions
-│   └── container.go       # Dependency injection container
-├── internal/               # Private application code (NOT importable)
-│   ├── interfaces/        # Service and repository contracts
-│   │   ├── repositories/  # Repository interfaces
-│   │   └── services/      # Service interfaces
-│   ├── repositories/      # Data access layer implementations
-│   │   ├── chargeback_case.go
-│   │   ├── fee_collection.go
-│   │   ├── incoming_file_item.go
-│   │   ├── incoming_file.go
-│   │   └── transaction.go
-│   ├── services/          # Business logic layer
-│   │   ├── incoming/      # T112 incoming file processing
-│   │   │   ├── svc.go
-│   │   │   ├── file_mover.go
-│   │   │   └── operations/ # Record type operations
-│   │   ├── full_mpe/      # Full MPE processing
-│   │   ├── incremental_mpe/ # Incremental MPE processing
-│   │   ├── files_management/ # Agnostic file operations
-│   │   └── ...            # Other service domains
-│   └── transport/         # External communication adapters
-│       ├── http/          # HTTP handlers and routes
-│       │   ├── handlers/
-│       │   ├── routes/
-│       │   └── viewmodels/
-│       └── rmq/           # RabbitMQ consumers
-│           └── consumers/
-├── pkg/                   # Public library code (importable)
-│   └── timezone/          # Timezone utilities
-├── mocks/                 # Generated mocks for testing
-├── data/                  # Test data files (JSON fixtures)
-├── main.go                # Application entry point
-├── go.mod                 # Go module definition
-├── Dockerfile             # Container definition
-└── Makefile               # Build automation
+bunmq/
+├── connection.go           # RMQConnection interface definition
+├── connection_manager.go   # Connection management with auto-reconnection
+├── channel.go              # Channel wrapper and management
+├── topology.go             # Topology builder for exchanges, queues, bindings
+├── queue.go                # Queue definitions with retry/DLQ configuration
+├── exchange.go             # Exchange definitions (direct, topic, fanout, headers)
+├── binding.go              # Binding configuration between exchanges and queues
+├── publisher.go            # Message publishing with tracing and deadlines
+├── dispatcher.go           # Message consumption and handler dispatching
+├── tracing.go              # OpenTelemetry integration for AMQP headers
+├── options.go              # Publishing options and message metadata
+├── errors.go               # Domain-specific error types
+├── mocks.go                # Mock implementations for testing
+├── *_test.go               # Unit tests alongside source files
+├── examples/               # Usage examples
+│   └── main.go             # Example application demonstrating library usage
+├── .github/                # GitHub-specific configurations
+│   ├── copilot-instructions.md    # Main Copilot instruction file
+│   ├── instructions/       # Path-specific instruction files
+│   ├── workflows/          # CI/CD workflows
+│   └── CODEOWNERS          # Code ownership configuration
+├── Makefile                # Build automation (test, lint, sec)
+├── .gosec.json             # Security scanner configuration
+├── codecov.yml             # Code coverage configuration
+├── go.mod                  # Module definition (github.com/goxkit/bunmq)
+└── go.sum                  # Dependency checksums
 ```
 
 ---
 
 ## Rule: Package Naming
 
-**Description**: Package names MUST follow Go conventions and match directory names.
+**Description**: Package name MUST be `bunmq` for all library files.
 
 **When it applies**: When creating new packages or files.
 
 **Copilot MUST**:
-- Use lowercase, single-word package names
-- Match package name exactly to directory name
-- Use descriptive names that indicate package purpose
-- Keep package names concise
+- Use `package bunmq` for all library source files
+- Use `package main` only for example applications
+- Keep package name consistent across all library files
 
 **Copilot MUST NOT**:
+- Use different package names for library files
+- Create subpackages unless absolutely necessary
 - Use underscores or mixedCaps in package names
-- Use abbreviations without context
-- Create package names that don't match directory names
 
 **Example - Correct Package Naming**:
 
-```go
-// ✅ CORRECT: Package name matches directory
-// File: internal/services/authorized/service.go
-package authorized
+Reference: `@connection.go`, `@publisher.go`, `@dispatcher.go`
 
-// ✅ CORRECT: Package name matches directory
-// File: internal/repositories/trx_repository.go
-package repositories
+```go
+// ✅ CORRECT: All library files use the same package name
+// File: connection.go
+package bunmq
+
+// File: publisher.go
+package bunmq
+
+// File: dispatcher.go
+package bunmq
 ```
 
-**Example - Incorrect Package Naming**:
+**Example - Correct Example Package**:
+
+Reference: `@examples/main.go`
 
 ```go
-// ❌ WRONG: Package name doesn't match directory
-// File: internal/services/authorized/service.go
-package authorizedService
+// ✅ CORRECT: Example application uses package main
+package main
 
-// ❌ WRONG: Underscore in package name
-// File: internal/repositories/trx_repository.go
-package trx_repository
+import (
+    "github.com/goxkit/bunmq"
+)
 ```
 
 ---
 
 ## Rule: File Naming
 
-**Description**: File names MUST use snake_case and match primary type/function.
+**Description**: File names MUST use snake_case and describe the primary concept.
 
 **When it applies**: When creating new files.
 
 **Copilot MUST**:
 - Use snake_case for file names (lowercase with underscores)
-- Match file name to primary exported type or function
+- Name files after the primary concept they implement
 - Use `_test.go` suffix for test files
-- Keep file names descriptive
+- Keep file names descriptive and concise
 
 **Copilot MUST NOT**:
 - Use camelCase or PascalCase for file names
-- Create files with generic names (`utils.go`, `helpers.go`)
-- Use abbreviations in file names
+- Create files with generic names (`utils.go`, `helpers.go`, `common.go`)
+- Use abbreviations that aren't universally understood
 
 **Example - Correct File Naming**:
 
 ```
-✅ internal/services/authorized/service.go
-✅ internal/repositories/trx_repository.go
-✅ internal/services/authorized/operations/visa/credit.go
-✅ internal/services/authorized/operations/visa/credit_test.go
+✅ connection.go          # Connection interface and types
+✅ connection_manager.go  # Connection manager implementation
+✅ connection_test.go     # Tests for connection.go
+✅ connection_manager_test.go  # Tests for connection_manager.go
+✅ publisher.go           # Publisher interface and implementation
+✅ publisher_test.go      # Tests for publisher.go
 ```
 
 **Example - Incorrect File Naming**:
 
 ```
-❌ internal/services/authorized/authorizedService.go
-❌ internal/repositories/TrxRepository.go
-❌ internal/services/authorized/operations/visa/creditTest.go
+❌ Connection.go           # PascalCase not allowed
+❌ connectionManager.go    # camelCase not allowed
+❌ conn.go                 # Abbreviation not clear
+❌ utils.go                # Generic name not allowed
+❌ helpers.go              # Generic name not allowed
 ```
 
 ---
 
-## Rule: Layer Separation
+## Rule: Module Path and Imports
 
-**Description**: Code MUST be placed in the correct architectural layer.
-
-**When it applies**: When creating or moving code.
-
-**Copilot MUST**:
-- Place transport/adapter code in `internal/transport/`
-- Place business logic in `internal/services/`
-- Place data access in `internal/repositories/`
-- Place domain entities in `internal/models/`
-- Place interfaces in `internal/interfaces/`
-
-**Copilot MUST NOT**:
-- Place business logic in transport layer
-- Place data access in service layer
-- Mix concerns across layers
-- Create circular dependencies between layers
-
-**Example - Correct Layer Placement**:
-
-Reference: `@internal/transport/rmq/consumers/authorized.go`
-
-```go
-// ✅ CORRECT: Transport layer - orchestration only
-package consumers
-
-func (c *authorizedConsumer) Handle(ctx context.Context, delivery *amqp091.Delivery) error {
-    // Unmarshal, validate, delegate to service
-    return c.authorizerService.Process(ctx, customer, &authorizedMessage)
-}
-```
-
-Reference: `@internal/services/authorized/service.go`
-
-```go
-// ✅ CORRECT: Service layer - business logic
-package authorized
-
-func (as *authorizedService) Process(ctx context.Context, ...) error {
-    // Business logic here
-}
-```
-
----
-
-## Rule: Module Path
-
-**Description**: All internal imports MUST use the module path prefix.
+**Description**: All imports MUST use the correct module path.
 
 **When it applies**: When generating import statements.
 
 **Copilot MUST**:
-- Use module path: `bitbucket.org/asappay/go-clearing-mc-inc-ms`
-- Import internal packages using full module path
-- Organize imports: standard library, third-party, internal
+- Use module path: `github.com/goxkit/bunmq`
+- Organize imports in groups: standard library, third-party, internal
+- Separate import groups with blank lines
 
 **Copilot MUST NOT**:
 - Use relative imports
-- Use shortened import paths
-- Mix import styles
+- Use incorrect module paths
+- Mix import groups without separation
 
-**Example - Correct Import Paths**:
+**Example - Correct Import Organization**:
 
-Reference: `@internal/services/incoming/svc.go`
+Reference: `@publisher.go`
 
 ```go
 import (
+    // Standard library
     "context"
-    "database/sql"
-    
-    "bitbucket.org/asappay/go-clearing-models-lib/messages"
+    "encoding/json"
+    "fmt"
+    "reflect"
+    "time"
+
+    // Third-party dependencies
+    "github.com/google/uuid"
+    amqp "github.com/rabbitmq/amqp091-go"
     "github.com/sirupsen/logrus"
-    
-    "bitbucket.org/asappay/go-clearing-mc-inc-ms/internal/interfaces/repositories"
-    "bitbucket.org/asappay/go-clearing-mc-inc-ms/internal/interfaces/services"
-    "bitbucket.org/asappay/go-clearing-toolkit-lib/configs"
+)
+```
+
+Reference: `@dispatcher.go`
+
+```go
+import (
+    // Standard library
+    "context"
+    "encoding/json"
+    "errors"
+    "os"
+    "os/signal"
+    "reflect"
+    "sync"
+    "syscall"
+    "time"
+
+    // Third-party dependencies
+    amqp "github.com/rabbitmq/amqp091-go"
+    "github.com/sirupsen/logrus"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/codes"
+    "go.opentelemetry.io/otel/trace"
 )
 ```
 
@@ -232,63 +207,52 @@ import (
 
 ## Rule: Test File Organization
 
-**Description**: Test files MUST be placed alongside source files in the same package.
+**Description**: Test files MUST be placed alongside source files.
 
 **When it applies**: When creating test files.
 
 **Copilot MUST**:
 - Place test files in the same directory as source files
 - Use `_test.go` suffix
-- Keep test files in the same package (unless testing exported API)
-- Organize tests to match source code structure
+- Use `package bunmq` for internal tests (access to private members)
+- Name test functions as `Test<FunctionName>_<Scenario>`
 
 **Copilot MUST NOT**:
 - Create separate test directories
-- Place tests in different packages unnecessarily
-- Mix test files with source files inappropriately
+- Use `package bunmq_test` unless testing only exported API
+- Mix test files with example files
 
 **Example - Correct Test Organization**:
 
 ```
-internal/services/authorized/
-├── service.go          # Source file
-└── service_test.go     # ✅ Test file in same directory
+bunmq/
+├── connection.go          # Source file
+├── connection_test.go     # ✅ Test file in same directory
+├── publisher.go           # Source file
+├── publisher_test.go      # ✅ Test file in same directory
+├── dispatcher.go          # Source file
+└── dispatcher_test.go     # ✅ Test file in same directory
 ```
 
 ---
 
 ## Rule: Configuration Files
 
-**Description**: Configuration MUST be loaded from environment variables, never hardcoded.
+**Description**: Configuration files MUST be placed in the root directory with appropriate naming.
 
-**When it applies**: When generating configuration or initialization code.
+**When it applies**: When creating or modifying configuration files.
 
 **Copilot MUST**:
-- Load configuration from environment variables
-- Use `configs.LoadEnvironmentProps()` for environment loading
-- Use `ConfigTool` for remote configuration
-- Document required environment variables
+- Place Makefile in root directory
+- Place .gosec.json for security configuration
+- Place codecov.yml for coverage configuration
+- Place go.mod and go.sum in root directory
+- Place GitHub configurations in .github/
 
 **Copilot MUST NOT**:
-- Hardcode configuration values
-- Store secrets in configuration files
-- Use configuration files committed to version control for secrets
-
-**Example - Correct Configuration**:
-
-Reference: `@cmd/container.go`
-
-```go
-// ✅ CORRECT: Configuration from environment
-configs.LoadEnvironmentProps()
-logger.Init(
-    configs.Config.GetString("ENVIRONMENT"),
-    configs.Config.GetString("LOG_LEVEL"),
-)
-
-// ✅ CORRECT: Remote configuration for sensitive data
-configTool, err := configTool.NewConfigTool()
-```
+- Create configuration files in subdirectories (except .github/)
+- Use non-standard configuration file names
+- Duplicate configuration files
 
 ---
 
@@ -296,11 +260,10 @@ configTool, err := configTool.NewConfigTool()
 
 When generating code, ensure:
 
-- ✅ Files placed in correct directories according to layer
-- ✅ Package names match directory names
+- ✅ File placed in correct location (root for library, examples/ for examples)
+- ✅ Package name is `bunmq` for library files
 - ✅ File names use snake_case
-- ✅ Imports use full module path
+- ✅ Imports use correct module path (github.com/goxkit/bunmq)
 - ✅ Test files placed alongside source files
-- ✅ Configuration loaded from environment variables
-- ✅ No circular dependencies
-- ✅ Clear layer separation maintained
+- ✅ No unnecessary subdirectories created
+- ✅ Import groups properly organized and separated

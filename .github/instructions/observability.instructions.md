@@ -12,7 +12,7 @@ applyTo: "**/*.go"
 
 **Copilot MUST**:
 - Use Logrus for all logging operations
-- Use structured logging with fields: `logrus.WithFields()`
+- Use structured logging with fields: `logrus.WithFields()` or `logrus.WithField()`
 - Include context using `logrus.WithContext(ctx)`
 - Use appropriate log levels: Debug, Info, Warn, Error
 
@@ -20,55 +20,47 @@ applyTo: "**/*.go"
 - Use `fmt.Printf`, `log.Print`, or `log.Println`
 - Concatenate strings in log messages
 - Log without context
-- Use `Fatal` or `Panic` except in main/init
+- Use `Fatal` or `Panic` in library code
 
 **Example - Correct Structured Logging**:
 
-Reference: `@internal/services/authorized/service.go`
+Reference: `@publisher.go`
 
 ```go
-func (as *authorizedService) Process(
-    ctx context.Context,
-    customer *configuration.CustomerConfig,
-    msg *authorizer.AuthorizedMessage,
-) error {
-    // ✅ Structured logging with context
-    if msg == nil {
-        logrus.WithContext(ctx).Error("authorizedMessage cannot be nil")
-        return errors.ErrUnformattedMessage
+// ✅ Structured logging with context
+func (p *publisher) Publish(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error {
+    if exchange == "" {
+        logrus.WithContext(ctx).Error("exchange cannot be empty")
+        return fmt.Errorf("exchange cannot be empty")
     }
-    
-    wasProcessed, err := as.eventsRepo.WasProcessed(ctx, customer, ...)
-    if err != nil {
-        // ✅ Structured logging with error and fields
-        logrus.WithContext(ctx).
-            WithError(err).
-            WithFields(msg.LogFields()).
-            Error("failed to check existing was processed in database")
-        return err
-    }
-    
-    if wasProcessed {
-        // ✅ Info level for expected behavior
-        logrus.WithContext(ctx).
-            WithFields(msg.LogFields()).
-            Info("was processed already exists for the provided NSU, MerchantID, and AuthCode. Skipping insertion.")
-        return nil
-    }
+    return p.publish(ctx, exchange, routingKey, msg, options...)
 }
+```
+
+Reference: `@dispatcher.go`
+
+```go
+// ✅ Structured logging with fields
+logrus.WithContext(ctx).
+    WithField("queue", queue).
+    WithField("consumer_tag", consumerTag).
+    Info("started consuming from queue")
 ```
 
 **Example - Incorrect Logging**:
 
 ```go
 // ❌ WRONG: String concatenation
-fmt.Printf("Processing message: %+v\n", msg)
+fmt.Printf("Publishing to exchange: %s\n", exchange)
 
 // ❌ WRONG: No context
 logrus.Error("error occurred")
 
 // ❌ WRONG: Generic message
 log.Println("failed")
+
+// ❌ WRONG: Printf-style logging
+logrus.Infof("processing message %v", msg)  // Use WithField instead
 ```
 
 ---
@@ -87,33 +79,34 @@ log.Println("failed")
 
 **Copilot MUST NOT**:
 - Use `Error` for expected conditions (use `Info` or `Warn`)
-- Use `Fatal` or `Panic` in library code
+- Use `Fatal` or `Panic` in library code (never in bunmq)
 - Log at `Debug` level in production hot paths
 
 **Example - Correct Log Levels**:
 
+Reference: `@dispatcher.go`
+
 ```go
-// ✅ Info: Normal operation
+// ✅ Debug: Detailed diagnostic information
 logrus.WithContext(ctx).
-    WithFields(msg.LogFields()).
-    Info("authorized transaction processed successfully")
+    WithField("delivery_tag", delivery.DeliveryTag).
+    Debug("received delivery")
 
-// ✅ Info: Expected business event (duplicate)
+// ✅ Info: Normal operation events
 logrus.WithContext(ctx).
-    WithFields(msg.LogFields()).
-    Info("was processed already exists for the provided NSU, MerchantID, and AuthCode. Skipping insertion.")
+    WithField("queue", queue).
+    Info("consumer registered successfully")
 
-// ✅ Warn: Recoverable issue
+// ✅ Warn: Recoverable issues
 logrus.WithContext(ctx).
     WithError(err).
     WithField("retry_count", attempt).
     Warn("failed to publish message, retrying")
 
-// ✅ Error: Failure that needs attention
+// ✅ Error: Failures that need attention
 logrus.WithContext(ctx).
     WithError(err).
-    WithFields(msg.LogFields()).
-    Error("failed to check existing was processed in database")
+    Error("failed to connect to RabbitMQ")
 ```
 
 ---
@@ -126,84 +119,155 @@ logrus.WithContext(ctx).
 
 **Copilot MUST**:
 - Use `WithFields()` or `WithField()` for structured data
-- Include identifiers (IDs, keys, transaction numbers) in log fields
-- Use message's `LogFields()` method when available
+- Include relevant identifiers (queue names, exchange names, routing keys)
 - Include error context with `WithError(err)`
+- Include timing information when relevant
 
 **Copilot MUST NOT**:
 - Embed data in log message strings
 - Log without relevant context fields
-- Log sensitive data (see security instructions)
+- Log sensitive data (credentials, tokens)
 
 **Example - Correct Structured Fields**:
 
-Reference: `@internal/services/authorized/service.go`
+Reference: `@dispatcher.go`
 
 ```go
-// ✅ Using message's LogFields() method
-logrus.WithContext(ctx).
-    WithError(err).
-    WithFields(msg.LogFields()). // ✅ Structured fields from message
-    Error("failed to check existing was processed in database")
-
-// ✅ Manual fields when needed
+// ✅ Multiple relevant fields
 logrus.WithContext(ctx).
     WithFields(logrus.Fields{
-        "nsu": msg.SystemTraceAuditNumber,
-        "merchant_id": msg.MerchantID,
-        "transaction_type": msg.TransactionType,
-        "product": msg.Product,
+        "queue":       queueName,
+        "exchange":    exchange,
+        "routing_key": routingKey,
+        "consumer_tag": consumerTag,
     }).
-    Info("processing authorized transaction")
+    Info("binding consumer to queue")
+
+// ✅ Error with context
+logrus.WithContext(ctx).
+    WithError(err).
+    WithField("queue", queue).
+    Error("failed to declare queue")
 ```
 
 ---
 
 ## Rule: OpenTelemetry Tracing
 
-**Description**: Create spans for significant operations and propagate context.
+**Description**: Create spans for significant operations and propagate trace context.
 
-**When it applies**: When generating code that performs I/O or business logic operations.
+**When it applies**: When generating code that performs I/O or significant operations.
 
 **Copilot MUST**:
-- Create spans for database queries, external API calls, message publishing/consuming
-- Propagate context through all layers
+- Create spans for message publishing and consuming
+- Propagate trace context through AMQP headers
 - Record errors in spans using `span.RecordError(err)`
 - Set span status: `span.SetStatus(codes.Ok, "")` or `span.SetStatus(codes.Error, err.Error())`
+- Use `defer span.End()` to ensure span closure
 
 **Copilot MUST NOT**:
 - Create spans without proper context propagation
 - Ignore errors in spans
 - Create spans for trivial operations
+- Forget to end spans
 
 **Example - Correct Tracing**:
 
-Reference: `@internal/repositories/events_repository.go`
+Reference: `@tracing.go`
 
 ```go
-func (pr *clearingEventsRepository) WasProcessed(
-    ctx context.Context,
-    customer *configuration.CustomerConfig,
-    nsu, mid, authTransactionDate, authCode string,
-) (bool, error) {
-    // ✅ Create span for database operation
-    ctx, span := pr.tracer.Start(ctx, "clearingEventsRepository.WasProcessed")
+// ✅ AMQPHeader implements TextMapCarrier for trace propagation
+type AMQPHeader amqp.Table
+
+func (h AMQPHeader) Set(key, val string) {
+    key = strings.ToLower(key)
+    h[key] = val
+}
+
+func (h AMQPHeader) Get(key string) string {
+    key = strings.ToLower(key)
+    value, ok := h[key]
+    if !ok {
+        return ""
+    }
+    toString, ok := value.(string)
+    if !ok {
+        return ""
+    }
+    return toString
+}
+
+func (h AMQPHeader) Keys() []string {
+    keys := make([]string, 0, len(h))
+    for k := range h {
+        keys = append(keys, k)
+    }
+    sort.Strings(keys)
+    return keys
+}
+```
+
+Reference: `@dispatcher.go`
+
+```go
+// ✅ Create span for message handling
+func (d *dispatcher) handleDelivery(ctx context.Context, delivery amqp.Delivery, def *ConsumerDefinition) error {
+    ctx, span := d.tracer.Start(ctx, "dispatcher.handleDelivery")
     defer span.End()
-    
-    db, err := pr.multiDBManager.GetRODB(customer)
+
+    // ... processing logic ...
+
     if err != nil {
-        logrus.WithContext(ctx).WithError(err).Error("failed to get read-only db connection")
-        // ✅ Record error in span
         span.RecordError(err)
         span.SetStatus(codes.Error, err.Error())
-        return false, errors.ErrDatabaseConnection
+        return err
     }
-    
-    // ... query logic ...
-    
-    // ✅ Set success status
+
     span.SetStatus(codes.Ok, "")
-    return false, nil
+    return nil
+}
+```
+
+---
+
+## Rule: Trace Context Propagation in AMQP
+
+**Description**: Propagate OpenTelemetry trace context through AMQP message headers.
+
+**When it applies**: When publishing or consuming AMQP messages.
+
+**Copilot MUST**:
+- Inject trace context into AMQP headers when publishing
+- Extract trace context from AMQP headers when consuming
+- Use the `AMQPPropagator` composite propagator
+- Support both TraceContext and Baggage propagation
+
+**Copilot MUST NOT**:
+- Skip trace propagation in messages
+- Use custom header names (use standard W3C trace headers)
+- Lose trace context between services
+
+**Example - Correct Trace Propagation**:
+
+Reference: `@tracing.go`
+
+```go
+// ✅ Composite propagator for AMQP
+var AMQPPropagator = propagation.NewCompositeTextMapPropagator(
+    propagation.TraceContext{},
+    propagation.Baggage{},
+)
+
+// ✅ Inject trace context when publishing
+func InjectTraceContext(ctx context.Context, headers amqp.Table) {
+    carrier := AMQPHeader(headers)
+    AMQPPropagator.Inject(ctx, carrier)
+}
+
+// ✅ Extract trace context when consuming
+func ExtractTraceContext(ctx context.Context, headers amqp.Table) context.Context {
+    carrier := AMQPHeader(headers)
+    return AMQPPropagator.Extract(ctx, carrier)
 }
 ```
 
@@ -213,30 +277,32 @@ func (pr *clearingEventsRepository) WasProcessed(
 
 **Description**: Always propagate `context.Context` through all function calls.
 
-**When it applies**: When generating any function that makes external calls.
+**When it applies**: When generating any function that performs operations.
 
 **Copilot MUST**:
 - Accept `context.Context` as the first parameter
 - Propagate context to all called functions
 - Use context for tracing, logging, and cancellation
-- Create spans using context
+- Extract/inject trace context from/to AMQP headers
 
 **Copilot MUST NOT**:
 - Create new contexts without reason
 - Store context in structs
 - Ignore context cancellation
+- Pass `nil` context
 
 **Example - Correct Context Propagation**:
 
-Reference: `@internal/transport/rmq/consumers/authorized.go`
+Reference: `@publisher.go`
 
 ```go
-func (c *authorizedConsumer) Handle(ctx context.Context, delivery *amqp091.Delivery) error {
-    // ✅ Context propagated from consumer
-    logrus.WithContext(ctx).Debug("received message in AuthorizedConsumer")
-    
-    // ✅ Context propagated to service
-    return c.authorizerService.Process(ctx, customer, &authorizedMessage)
+// ✅ Context as first parameter, propagated throughout
+func (p *publisher) Publish(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error {
+    // Context used for logging
+    logrus.WithContext(ctx).Debug("publishing message")
+
+    // Context propagated to internal method
+    return p.publish(ctx, exchange, routingKey, msg, options...)
 }
 ```
 
@@ -244,52 +310,39 @@ func (c *authorizedConsumer) Handle(ctx context.Context, delivery *amqp091.Deliv
 
 ## Rule: Never Log Sensitive Data
 
-**Description**: Never log passwords, tokens, API keys, credit card numbers, or PII.
+**Description**: Never log passwords, tokens, API keys, or sensitive message content.
 
 **When it applies**: When generating any logging code.
 
 **Copilot MUST**:
-- Redact or hash sensitive fields before logging
-- Use structured fields to exclude sensitive data
-- Log identifiers only, not full payloads
-- Validate that no secrets are in log messages
+- Log identifiers only, not full message payloads
+- Redact or exclude sensitive fields
+- Use structured fields to control what is logged
+- Review log statements for sensitive data
 
 **Copilot MUST NOT**:
-- Log full message payloads without filtering
+- Log full message bodies (may contain sensitive data)
 - Log credentials or authentication tokens
-- Log customer PII without consent
-- Embed sensitive data in log strings
+- Log connection strings with passwords
+- Use `%+v` or `%#v` on message objects
 
 **Example - Correct Logging (No Sensitive Data)**:
 
 ```go
-// ✅ Log identifiers, not sensitive data
+// ✅ Log identifiers, not content
 logrus.WithContext(ctx).
     WithFields(logrus.Fields{
-        "nsu": msg.SystemTraceAuditNumber, // ✅ Safe identifier
-        "merchant_id": msg.MerchantID,      // ✅ Safe identifier
-        "transaction_type": msg.TransactionType, // ✅ Safe
+        "exchange":    exchange,
+        "routing_key": routingKey,
+        "message_id":  messageID,
     }).
-    Info("processing transaction")
+    Debug("publishing message")
 
-// ✅ Log error without exposing sensitive details
-logrus.WithContext(ctx).
-    WithError(err).
-    WithField("operation", "process_transaction").
-    Error("failed to process transaction")
-```
-
-**Example - Incorrect Logging (Sensitive Data)**:
-
-```go
-// ❌ WRONG: Logging full message (may contain sensitive data)
+// ❌ WRONG: Logging full message
 logrus.WithContext(ctx).WithField("message", msg).Debug("received message")
 
-// ❌ WRONG: Logging credentials
-logrus.WithContext(ctx).WithField("password", password).Info("authenticating")
-
-// ❌ WRONG: Logging tokens
-logrus.WithContext(ctx).WithField("token", authToken).Debug("using token")
+// ❌ WRONG: Logging connection URL (contains password)
+logrus.WithField("url", amqpURL).Info("connecting")
 ```
 
 ---
@@ -302,27 +355,32 @@ logrus.WithContext(ctx).WithField("token", authToken).Debug("using token")
 
 **Copilot MUST**:
 - Log errors before returning them
-- Include full context: error message, identifiers, operation context
+- Include full context: operation, identifiers, error
 - Use `WithError(err)` to include error in structured logs
-- Use appropriate log level (Error for failures)
+- Use Error level for failures
 
 **Copilot MUST NOT**:
 - Log errors without context
 - Swallow errors silently
-- Log the same error multiple times
+- Log the same error multiple times (log once, at the source)
 
 **Example - Correct Error Logging**:
 
-Reference: `@internal/services/authorized/service.go`
+Reference: `@publisher.go`
 
 ```go
-wasProcessed, err := as.eventsRepo.WasProcessed(ctx, customer, msg.SystemTraceAuditNumber, msg.MerchantID, msg.TransactionDate, msg.AuthorizationCode)
+// ✅ Log error with context at point of detection
+if exchange == "" {
+    logrus.WithContext(ctx).Error("exchange cannot be empty")
+    return fmt.Errorf("exchange cannot be empty")
+}
+
+// ✅ Log error with operation context
 if err != nil {
-    // ✅ Log error with full context before returning
     logrus.WithContext(ctx).
-        WithError(err).                    // ✅ Include error
-        WithFields(msg.LogFields()).        // ✅ Include message fields
-        Error("failed to check existing was processed in database")
+        WithError(err).
+        WithField("exchange", exchange).
+        Error("failed to publish message")
     return err
 }
 ```
@@ -333,10 +391,12 @@ if err != nil {
 
 When generating code, ensure:
 
-- ✅ All errors are logged with context
 - ✅ Structured logging used (no string concatenation)
 - ✅ Context propagated through all layers
-- ✅ Spans created for significant operations
+- ✅ All errors logged with context before returning
+- ✅ Spans created for I/O operations (publish, consume)
+- ✅ Trace context propagated through AMQP headers
 - ✅ No sensitive data in logs
 - ✅ Appropriate log levels used
-- ✅ Correlation IDs included in logs
+- ✅ `WithContext(ctx)` always used with Logrus
+- ✅ Spans properly ended with `defer span.End()`

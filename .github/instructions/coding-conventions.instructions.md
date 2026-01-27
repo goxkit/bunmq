@@ -15,7 +15,7 @@ applyTo: "**/*.go"
 - Use camelCase for unexported names
 - Use descriptive, intention-revealing names
 - Follow domain terminology consistently
-- Use short names for common types: `ctx`, `db`, `err`, `msg`
+- Use conventional short names: `ctx`, `err`, `msg`, `ch`
 
 **Copilot MUST NOT**:
 - Use single-letter names (except `i`, `j`, `k` for iterators)
@@ -25,27 +25,38 @@ applyTo: "**/*.go"
 
 **Example - Correct Naming**:
 
-Reference: `@internal/services/authorized/service.go`
+Reference: `@connection.go`
 
 ```go
-// ✅ CORRECT: Exported type with PascalCase
-type AuthorizedService interface {
-    Process(ctx context.Context, ...) error
+// ✅ CORRECT: Exported interface with PascalCase and documentation
+type RMQConnection interface {
+    Channel() (*amqp.Channel, error)
+    IsClosed() bool
+    Close() error
+    NotifyClose(receiver chan *amqp.Error) chan *amqp.Error
 }
+```
 
+Reference: `@dispatcher.go`
+
+```go
 // ✅ CORRECT: Unexported struct with camelCase
-type authorizedService struct {
-    operationFactory interfaces.OperationFactory[authorizer.AuthorizedMessage]
-    eventsRepo       interfaces.EventsRepository
+type dispatcher struct {
+    manager             ConnectionManager
+    queueDefinitions    map[string]*QueueDefinition
+    consumersDefinition map[string][]*ConsumerDefinition
+    tracer              trace.Tracer
+    signalCh            chan os.Signal
+    mu                  sync.RWMutex
 }
 
 // ✅ CORRECT: Constructor with New prefix
-func NewAuthorizedService(...) interfaces.AuthorizerService {
-    return &authorizedService{...}
+func NewDispatcher(manager ConnectionManager, definitions []*QueueDefinition) Dispatcher {
+    return &dispatcher{...}
 }
 
-// ✅ CORRECT: Method with verb name
-func (as *authorizedService) Process(ctx context.Context, ...) error {
+// ✅ CORRECT: Method with clear verb action
+func (d *dispatcher) RegisterByType(queue string, typE any, handler ConsumerHandler) error {
     // ...
 }
 ```
@@ -54,17 +65,17 @@ func (as *authorizedService) Process(ctx context.Context, ...) error {
 
 ```go
 // ❌ WRONG: Single-letter variable for important data
-func Process(m *authorizer.AuthorizedMessage) error {
+func Process(m *Message) error {
     // ...
 }
 
 // ❌ WRONG: Generic name
-func Process(data interface{}) error {
+func Handle(data interface{}) error {
     // ...
 }
 
 // ❌ WRONG: Abbreviation without context
-func ProcAuthMsg(msg *authorizer.AuthorizedMessage) error {
+func PubMsg(msg *Message) error {
     // ...
 }
 ```
@@ -80,7 +91,7 @@ func ProcAuthMsg(msg *authorizer.AuthorizedMessage) error {
 **Copilot MUST**:
 - Keep functions under 30 lines (excluding comments and blank lines)
 - Extract complex logic to helper functions
-- Use early returns to reduce nesting
+- Use early returns (guard clauses) to reduce nesting
 - Ensure single responsibility per function
 
 **Copilot MUST NOT**:
@@ -91,33 +102,37 @@ func ProcAuthMsg(msg *authorizer.AuthorizedMessage) error {
 
 **Example - Correct Function Size**:
 
-Reference: `@internal/services/authorized/service.go`
+Reference: `@publisher.go`
 
 ```go
-// ✅ CORRECT: Small, focused function
-func (as *authorizedService) Process(ctx context.Context, customer *configuration.CustomerConfig, msg *authorizer.AuthorizedMessage) error {
-    if msg == nil {
-        logrus.WithContext(ctx).Error("authorizedMessage cannot be nil")
-        return errors.ErrUnformattedMessage
+// ✅ CORRECT: Small, focused function with early returns
+func (p *publisher) Publish(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error {
+    if exchange == "" {
+        logrus.WithContext(ctx).Error("exchange cannot be empty")
+        return fmt.Errorf("exchange cannot be empty")
     }
-    
-    db, err := as.uow.GetW(customer)
-    if err != nil {
-        logrus.WithContext(ctx).WithError(err).Error("failed to get db connection")
-        return errors.ErrDatabaseConnection
+    return p.publish(ctx, exchange, routingKey, msg, options...)
+}
+```
+
+Reference: `@tracing.go`
+
+```go
+// ✅ CORRECT: Focused function with single responsibility
+func (h AMQPHeader) Get(key string) string {
+    key = strings.ToLower(key)
+
+    value, ok := h[key]
+    if !ok {
+        return ""
     }
-    
-    if err := as.uow.Begin(ctx, db); err != nil {
-        logrus.WithContext(ctx).WithError(err).Error("failed to begin transaction")
-        return errors.ErrDatabaseConnection
+
+    toString, ok := value.(string)
+    if !ok {
+        return ""
     }
-    
-    defer func() {
-        _ = as.uow.Rollback(ctx, db)
-    }()
-    
-    // Business logic delegated to helper methods
-    return as.processMessage(ctx, db, customer, msg)
+
+    return toString
 }
 ```
 
@@ -131,7 +146,7 @@ func (as *authorizedService) Process(ctx context.Context, customer *configuratio
 
 **Copilot MUST**:
 - Format code according to `gofmt` standards
-- Organize imports with `goimports` (stdlib, third-party, internal)
+- Organize imports with `goimports` (stdlib, third-party)
 - Use tabs for indentation
 - Keep lines under 120 characters when possible
 
@@ -142,21 +157,27 @@ func (as *authorizedService) Process(ctx context.Context, customer *configuratio
 
 **Example - Correct Import Organization**:
 
-Reference: `@internal/services/authorized/service.go`
+Reference: `@dispatcher.go`
 
 ```go
 import (
     // Standard library
     "context"
-    
-    // Third-party
-    "bitbucket.org/asappay/go-acquirer-messages-lib/authorizer"
-    "bitbucket.org/asapshared/go-tools/v2/config_tool/configuration"
+    "encoding/json"
+    "errors"
+    "os"
+    "os/signal"
+    "reflect"
+    "sync"
+    "syscall"
+    "time"
+
+    // Third-party dependencies
+    amqp "github.com/rabbitmq/amqp091-go"
     "github.com/sirupsen/logrus"
-    
-    // Internal
-    "bitbucket.org/asappay/go-clearing-events-ms/internal/services/interfaces"
-    "bitbucket.org/asappay/go-clearing-toolkit-lib/errors"
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/codes"
+    "go.opentelemetry.io/otel/trace"
 )
 ```
 
@@ -171,9 +192,9 @@ import (
 **Copilot MUST**:
 - Add package comments explaining package purpose
 - Document all exported functions with clear descriptions
-- Document all exported types
-- Explain "why" in comments, not "what"
+- Document all exported types and interfaces
 - Start comments with the symbol name
+- Explain "why" in comments, not "what"
 
 **Copilot MUST NOT**:
 - Skip documentation for exported symbols
@@ -182,28 +203,40 @@ import (
 
 **Example - Correct Documentation**:
 
+Reference: `@connection.go`
+
 ```go
-// Package authorized provides services for processing authorized transactions
-// from payment networks (Visa, Mastercard, Elo).
-package authorized
+// RMQConnection defines the interface for a RabbitMQ connection.
+// It abstracts the underlying AMQP connection and provides methods
+// for creating channels, retrieving connection state, and closing the connection.
+type RMQConnection interface {
+    // Channel creates a new channel on the connection.
+    // Returns a pointer to an AMQP channel and any error encountered.
+    Channel() (*amqp.Channel, error)
 
-// AuthorizedService processes authorized transaction messages from payment networks.
-// It orchestrates the conversion of authorized messages to clearing transactions.
-type AuthorizedService interface {
-    // Process handles an authorized message and creates clearing transactions.
-    // It returns an error if processing fails.
-    Process(ctx context.Context, customer *configuration.CustomerConfig, msg *authorizer.AuthorizedMessage) error
+    // IsClosed checks if the connection is closed.
+    IsClosed() bool
+
+    // Close gracefully closes the connection and all its channels.
+    Close() error
+
+    // NotifyClose returns a channel that receives notifications when the connection is closed.
+    NotifyClose(receiver chan *amqp.Error) chan *amqp.Error
 }
+```
 
-// NewAuthorizedService creates a new authorized service with the given dependencies.
-func NewAuthorizedService(
-    operationFactory interfaces.OperationFactory[authorizer.AuthorizedMessage],
-    eventsRepo interfaces.EventsRepository,
-) interfaces.AuthorizerService {
-    return &authorizedService{
-        operationFactory: operationFactory,
-        eventsRepo:       eventsRepo,
-    }
+Reference: `@publisher.go`
+
+```go
+// Publisher defines an interface for publishing messages to a messaging system.
+// It provides methods for sending messages with optional metadata such as
+// destination, source, and routing keys.
+type Publisher interface {
+    // Publish sends a message to the specified exchange.
+    Publish(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error
+
+    // PublishDeadline sends a message with a deadline.
+    PublishDeadline(ctx context.Context, exchange, routingKey string, msg any, options ...*Option) error
 }
 ```
 
@@ -213,33 +246,49 @@ func NewAuthorizedService(
 
 **Description**: NEVER use magic numbers. Always use named constants.
 
-**When it applies**: When using numeric literals or string literals for configuration.
+**When it applies**: When using numeric literals or string literals.
 
 **Copilot MUST**:
 - Define constants for all numeric literals (except 0, 1, -1)
 - Use descriptive constant names
 - Group related constants together
-- Use constants for configuration keys
+- Use constants for configuration values
 
 **Copilot MUST NOT**:
 - Use magic numbers in code
-- Use string literals for configuration keys repeatedly
+- Use string literals repeatedly for the same value
 - Hardcode values that should be configurable
 
 **Example - Correct Constant Usage**:
 
+Reference: `@publisher.go`
+
 ```go
 const (
-    defaultTimeout     = 30 * time.Second
-    maxRetries         = 3
-    queueMaxLength     = 100000
+    JSONContentType = "application/json"
 )
+```
 
-// ✅ CORRECT: Using named constant
-time.Sleep(defaultTimeout)
+Reference: `@dispatcher.go`
 
+```go
+const (
+    ConsumerDefinitionByType ConsumerDefinitionType = iota + 1
+    ConsumerDefinitionByExchange
+    ConsumerDefinitionByRoutingKey
+    ConsumerDefinitionByExchangeRoutingKey
+)
+```
+
+**Example - Incorrect Usage**:
+
+```go
 // ❌ WRONG: Magic number
-time.Sleep(30 * time.Second)
+time.Sleep(5 * time.Second)  // What is 5? Why 5?
+
+// ✅ CORRECT: Named constant
+const reconnectDelay = 5 * time.Second
+time.Sleep(reconnectDelay)
 ```
 
 ---
@@ -252,53 +301,81 @@ time.Sleep(30 * time.Second)
 
 **Copilot MUST**:
 - Explain what went wrong
-- Include relevant context (IDs, values when safe)
+- Include relevant context
 - Use consistent format
-- Be user-friendly when exposed to users
+- Start error strings with lowercase (per Go convention)
 
 **Copilot MUST NOT**:
 - Use generic messages ("error occurred")
 - Include sensitive information
-- Use technical jargon for user-facing errors
+- Use punctuation at the end of error messages
 
 **Example - Correct Error Messages**:
 
-Reference: `@internal/services/authorized/service.go`
+Reference: `@errors.go`
 
 ```go
-// ✅ CORRECT: Descriptive error message with context
-logrus.WithContext(ctx).
-    WithError(err).
-    WithFields(msg.LogFields()).
-    Error("failed to insert authorized event in database")
+// ✅ CORRECT: Descriptive error variables
+var (
+    ErrQueueNotDefined       = errors.New("queue not defined in topology")
+    ErrHandlerAlreadyExists  = errors.New("handler already exists for this queue")
+    ErrConnectionClosed      = errors.New("connection is closed")
+    ErrChannelClosed         = errors.New("channel is closed")
+)
+```
 
-// ❌ WRONG: Generic error message
-logrus.Error("error")
+Reference: `@publisher.go`
+
+```go
+// ✅ CORRECT: Clear error with context
+if exchange == "" {
+    logrus.WithContext(ctx).Error("exchange cannot be empty")
+    return fmt.Errorf("exchange cannot be empty")
+}
 ```
 
 ---
 
-## Rule: Struct Organization
+## Rule: Struct Field Organization
 
 **Description**: Struct fields MUST be organized logically.
 
 **When it applies**: When creating structs.
 
 **Copilot MUST**:
-- Organize fields: exported first, then unexported
 - Group related fields together
-- Use field tags for JSON, database, validation
-- Provide constructors for structs that need initialization
+- Add field tags when needed (json, etc.)
+- Align struct tags for readability
+- Order fields by importance/usage
 
 **Example - Correct Struct Organization**:
 
-Reference: `@internal/services/authorized/service.go`
+Reference: `@dispatcher.go`
 
 ```go
-// ✅ CORRECT: Exported fields first, then unexported
-type authorizedService struct {
-    operationFactory interfaces.OperationFactory[authorizer.AuthorizedMessage]
-    eventsRepo       interfaces.EventsRepository
+// ✅ CORRECT: Logical field grouping
+type ConsumerDefinition struct {
+    typ        ConsumerDefinitionType  // Type information
+    queue      string                  // Queue binding
+    exchange   string                  // Exchange binding
+    routingKey string                  // Routing key
+    msgType    string                  // Message type
+    reflect    *reflect.Value          // Reflection data
+    handler    ConsumerHandler         // Handler function
+}
+```
+
+Reference: `@options.go`
+
+```go
+// ✅ CORRECT: Clear struct with tags
+type DeliveryMetadata struct {
+    MessageID      string                 `json:"message_id"`
+    XCount         int64                  `json:"x_count"`
+    Type           string                 `json:"type"`
+    OriginExchange string                 `json:"origin_exchange"`
+    RoutingKey     string                 `json:"routing_key"`
+    Headers        map[string]interface{} `json:"headers"`
 }
 ```
 
@@ -318,23 +395,23 @@ type authorizedService struct {
 
 **Copilot MUST NOT**:
 - Declare variables far from their use
-- Use `var` when short declaration is possible
+- Use `var` when short declaration works
 - Create variables with unclear purpose
 
 **Example - Correct Variable Declarations**:
 
+Reference: `@tracing.go`
+
 ```go
 // ✅ CORRECT: Short declaration close to use
-db, err := as.uow.GetW(customer)
-if err != nil {
-    return errors.ErrDatabaseConnection
+func (h AMQPHeader) Keys() []string {
+    keys := make([]string, 0, len(h))
+    for k := range h {
+        keys = append(keys, k)
+    }
+    sort.Strings(keys)
+    return keys
 }
-
-// ✅ CORRECT: Meaningful names
-authorizedMessage := &authorizer.AuthorizedMessage{}
-
-// ❌ WRONG: Generic name
-msg := &authorizer.AuthorizedMessage{}
 ```
 
 ---
@@ -346,10 +423,11 @@ When generating code, ensure:
 - ✅ PascalCase for exported, camelCase for unexported
 - ✅ Descriptive, intention-revealing names
 - ✅ Functions under 30 lines
-- ✅ Proper import organization
+- ✅ Proper import organization (stdlib, then third-party)
 - ✅ All exported symbols documented
-- ✅ No magic numbers (use constants)
-- ✅ Descriptive error messages
+- ✅ No magic numbers (use named constants)
+- ✅ Descriptive error messages (lowercase, no punctuation)
 - ✅ Code formatted with gofmt/goimports
 - ✅ Early returns to reduce nesting
 - ✅ Single responsibility per function
+- ✅ Struct fields logically organized
