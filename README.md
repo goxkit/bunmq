@@ -114,7 +114,7 @@ func main() {
 
     // Create dispatcher with resilient connection management
     dispatcher := bunmq.NewDispatcher(manager, []*bunmq.QueueDefinition{queueDef})
-    
+
     err = dispatcher.RegisterByType("orders", &OrderCreated{}, func(ctx context.Context, msg any, metadata any) error {
         order := msg.(*OrderCreated)
         logrus.Infof("Processing order: %s, Amount: %.2f", order.ID, order.Amount)
@@ -144,7 +144,7 @@ if err != nil {
 
 // The manager automatically:
 // 1. Monitors connection health using NotifyClose
-// 2. Monitors channel health using NotifyCancel  
+// 2. Monitors channel health using NotifyCancel
 // 3. Reconnects with exponential backoff on failures
 // 4. Reapplies topology after successful reconnection
 // 5. Restarts consumers automatically
@@ -176,7 +176,7 @@ Customize the reconnection behavior with `ReconnectionConfig`:
 config := bunmq.ReconnectionConfig{
     MaxAttempts:   10,              // Maximum reconnection attempts (0 = infinite)
     InitialDelay:  time.Second * 2, // Initial delay between attempts
-    BackoffMax:    time.Minute * 5, // Maximum delay between attempts  
+    BackoffMax:    time.Minute * 5, // Maximum delay between attempts
     BackoffFactor: 1.5,             // Exponential backoff factor
 }
 
@@ -185,7 +185,7 @@ manager, err := bunmq.NewConnectionManager("my-app", connectionString, config)
 
 **Default Configuration:**
 - **MaxAttempts**: 0 (infinite attempts)
-- **InitialDelay**: 2 seconds  
+- **InitialDelay**: 2 seconds
 - **BackoffMax**: 5 minutes
 - **BackoffFactor**: 1.5x exponential backoff
 
@@ -267,7 +267,7 @@ Multiple exchange types are supported with a fluent API:
 // Direct exchange (point-to-point routing)
 directExch := bunmq.NewDirectExchange("orders")
 
-// Fanout exchange (broadcast to all bound queues)  
+// Fanout exchange (broadcast to all bound queues)
 fanoutExch := bunmq.NewFanoutExchange("notifications")
 
 // Multiple exchanges at once
@@ -322,7 +322,7 @@ dispatcher := bunmq.NewDispatcher(manager, []*bunmq.QueueDefinition{queueDef})
 // Register typed handler
 err := dispatcher.RegisterByType("orders", &OrderCreated{}, func(ctx context.Context, msg any, metadata *bunmq.DeliveryMetadata) error {
     order := msg.(*OrderCreated)
-    
+
     // Process the order
     if err := processOrder(order); err != nil {
         // Return RetryableError for transient failures
@@ -332,9 +332,15 @@ err := dispatcher.RegisterByType("orders", &OrderCreated{}, func(ctx context.Con
         // Other errors will send message to DLQ
         return err
     }
-    
+
     return nil
 })
+
+//If you would like to configure a specific QoS configuration, you can do that with the QoS method
+err = dispatcher.QoS(1, 1, true)
+if err != nil {
+  return err
+}
 
 // Start consuming (blocks until SIGTERM/SIGINT)
 // Consumers are automatically restarted after reconnections
@@ -359,7 +365,7 @@ BunMQ automatically handles connection and channel failures through the Connecti
 // Optional: Set up monitoring for reconnection events
 manager.SetReconnectCallback(func(conn bunmq.RMQConnection, ch bunmq.AMQPChannel) {
     logrus.Info("Connection reestablished after failure")
-    
+
     // Send notification to monitoring system
     metrics.IncrementCounter("rabbitmq.reconnections")
 })
@@ -432,7 +438,7 @@ func handleOrder(ctx context.Context, msg any, metadata any) error {
     // ctx contains the trace from the publisher
     span := trace.SpanFromContext(ctx)
     span.SetAttributes(attribute.String("order.id", order.ID))
-    
+
     return processOrder(ctx, order)
 }
 ```
@@ -469,10 +475,10 @@ Access message metadata in handlers for advanced processing:
 ```go
 func handleMessage(ctx context.Context, msg any, metadata any) error {
     meta := metadata.(*bunmq.DeliveryMetadata)
-    
-    logrus.Infof("Message ID: %s, Retry Count: %d", 
+
+    logrus.Infof("Message ID: %s, Retry Count: %d",
                  meta.MessageID, meta.XCount)
-    
+
     return nil
 }
 ```

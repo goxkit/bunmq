@@ -57,6 +57,11 @@ type (
 		// ConsumeBlocking starts consuming messages and dispatches them to the registered handlers.
 		// This method blocks execution until the process is terminated by a signal.
 		ConsumeBlocking()
+
+		// QoS sets the Quality of Service (QoS) settings for the channel.
+		// It controls how many messages or how much data the server will try to keep on the network
+		// for consumers before receiving delivery acknowledgments.
+		QoS(prefetchCount, prefetchSize int, global bool) error
 	}
 
 	ConsumerDefinitionType int
@@ -282,6 +287,23 @@ func (d *dispatcher) RegisterByExchangeRoutingKey(queue string, msg any, exchang
 		reflect:    &ref,
 		handler:    handler,
 	})
+
+	return nil
+}
+
+// QoS sets the Quality of Service (QoS) settings for the channel.
+func (d *dispatcher) QoS(prefetchCount, prefetchSize int, global bool) error {
+	ch, err := d.manager.GetChannel()
+	if err != nil {
+		logrus.WithError(err).Error("bunmq failed to get channel for QoS setting")
+		return err
+	}
+
+	err = ch.Qos(prefetchCount, prefetchSize, global)
+	if err != nil {
+		logrus.WithError(err).Error("bunmq failed to set QoS")
+		return err
+	}
 
 	return nil
 }

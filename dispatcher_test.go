@@ -1503,3 +1503,101 @@ func TestDispatcher_Consume_ErrorRecovery(t *testing.T) {
 		t.Error("Expected dispatcher to handle error recovery")
 	}
 }
+
+func TestDispatcher_QoS(t *testing.T) {
+	tests := []struct {
+		name          string
+		prefetchCount int
+		prefetchSize  int
+		global        bool
+		getChannelErr error
+		qosErr        error
+		expectError   bool
+	}{
+		{
+			name:          "successful QoS setting with prefetch count",
+			prefetchCount: 10,
+			prefetchSize:  0,
+			global:        false,
+			getChannelErr: nil,
+			qosErr:        nil,
+			expectError:   false,
+		},
+		{
+			name:          "successful QoS setting with global flag",
+			prefetchCount: 5,
+			prefetchSize:  0,
+			global:        true,
+			getChannelErr: nil,
+			qosErr:        nil,
+			expectError:   false,
+		},
+		{
+			name:          "successful QoS setting with prefetch size",
+			prefetchCount: 0,
+			prefetchSize:  1024,
+			global:        false,
+			getChannelErr: nil,
+			qosErr:        nil,
+			expectError:   false,
+		},
+		{
+			name:          "GetChannel returns error",
+			prefetchCount: 10,
+			prefetchSize:  0,
+			global:        false,
+			getChannelErr: errors.New("failed to get channel"),
+			qosErr:        nil,
+			expectError:   true,
+		},
+		{
+			name:          "Qos returns error",
+			prefetchCount: 10,
+			prefetchSize:  0,
+			global:        false,
+			getChannelErr: nil,
+			qosErr:        errors.New("failed to set QoS"),
+			expectError:   true,
+		},
+		{
+			name:          "zero prefetch values",
+			prefetchCount: 0,
+			prefetchSize:  0,
+			global:        false,
+			getChannelErr: nil,
+			qosErr:        nil,
+			expectError:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			manager := NewMockConnectionManager()
+			channel := NewMockAMQPChannel()
+
+			if tt.getChannelErr != nil {
+				manager.SetGetChannelError(tt.getChannelErr)
+			} else {
+				manager.SetChannel(channel)
+				channel.SetQosError(tt.qosErr)
+			}
+
+			dispatcher := NewDispatcher(manager, []*QueueDefinition{})
+
+			// Execute
+			err := dispatcher.QoS(tt.prefetchCount, tt.prefetchSize, tt.global)
+
+			// Assert
+			if tt.expectError {
+				if err == nil {
+					t.Error("Expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, got %v", err)
+				}
+			}
+		})
+	}
+}
