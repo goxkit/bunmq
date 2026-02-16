@@ -230,20 +230,22 @@ func (cm *connectionManager) monitor() {
 // handleChannelFailure attempts to recreate the channel while keeping the connection
 func (cm *connectionManager) handleChannelFailure() {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
 
 	if cm.closed {
+		cm.mu.Unlock()
 		return
 	}
 
 	logrus.Info("bunmq attempting to recreate channel...")
 
 	// Check if connection is still healthy
-	if cm.conn != nil && !cm.conn.IsClosed() {
+	connHealthy := cm.conn != nil && !cm.conn.IsClosed()
+	if connHealthy {
 		// Try to create a new channel on the existing connection
 		newCh, err := cm.conn.Channel()
 		if err != nil {
 			logrus.WithError(err).Error("bunmq failed to recreate channel, will reconnect completely")
+			cm.mu.Unlock()
 			cm.handleConnectionFailure()
 			return
 		}
@@ -251,6 +253,7 @@ func (cm *connectionManager) handleChannelFailure() {
 		// Set up monitoring for the new channel
 		cm.setupChannelNotifications(newCh)
 		cm.ch = newCh
+		cm.mu.Unlock()
 
 		logrus.Info("bunmq channel recreated successfully")
 
@@ -260,6 +263,7 @@ func (cm *connectionManager) handleChannelFailure() {
 		}
 	} else {
 		// Connection is also bad, do full reconnection
+		cm.mu.Unlock()
 		cm.handleConnectionFailure()
 	}
 }
