@@ -37,9 +37,11 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.4.0
+          version: v2.8.0
+          install-mode: goinstall
 
       - name: Install gosec
+        if: always()
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
       - name: gosec
@@ -66,8 +68,8 @@ jobs:
           gosec -conf .gosec.json -fmt html  -out reports/gosec.html  ./... || true
 
       - name: Upload SARIF to Code Scanning
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('reports/gosec.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: reports/gosec.sarif
 
@@ -138,10 +140,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.new_tag }}
           name: ${{ steps.tag.outputs.new_tag }}
-          body: |
-            ## What’s in this release
-            - Automated patch bump from ${{ steps.tag.outputs.prev_tag }} to ${{ steps.tag.outputs.new_tag }}.
-            - Includes security scan artifact (gosec HTML) from CI.
+          generate_release_notes: true
           draft: false
           prerelease: false
           files: |

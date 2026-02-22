@@ -1,0 +1,43 @@
+changelog:
+  exclude:
+    authors:
+      - dependabot
+      - dependabot[bot]
+  categories:
+    - title: "🚀 Features"
+      labels:
+        - enhancement
+        - feat
+        - feature
+    - title: "🐛 Bug Fixes"
+      labels:
+        - bug
+        - bugfix
+        - fix
+        - hotfix
+    - title: "♻️ Refactoring"
+      labels:
+        - refactor
+        - refactoring
+        - refac
+    - title: "📚 Documentation"
+      labels:
+        - documentation
+        - docs
+        - doc
+        - readme
+    - title: "🧹 Maintenance"
+      labels:
+        - chore
+        - maintenance
+        - dependencies
+        - deps
+        - pkg
+        - build
+        - ci
+        - test
+        - tests
+        - coverage
+    - title: "Other Changes"
+      labels:
+        - "*"
