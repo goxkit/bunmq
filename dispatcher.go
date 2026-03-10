@@ -264,19 +264,13 @@ func (d *dispatcher) RegisterByExchangeRoutingKey(queue string, msg any, exchang
 	ref := reflect.New(t)
 	msgType := t.String()
 
-	consumers := d.consumersDefinition[queue]
-	for _, c := range consumers {
-		if c.msgType == msgType {
-			logrus.Error("bunmq consumer already registered for this message")
-			return ConsumerAlreadyRegisteredForTheMessageError
-		}
-	}
-
 	_, ok := d.queueDefinitions[queue]
 	if !ok {
 		logrus.Error("bunmq queue definition not found for the given queue")
 		return QueueDefinitionNotFoundError
 	}
+
+	consumers := d.consumersDefinition[queue]
 
 	d.consumersDefinition[queue] = append(consumers, &ConsumerDefinition{
 		typ:        ConsumerDefinitionByExchangeRoutingKey,
